@@ -101,8 +101,12 @@ def _extract_station_rank_key(value: Optional[str]) -> Optional[str]:
 
 
 def _get_dwell_seconds(schedule: RealtimeStationSchedule) -> int:
-    key = _extract_station_rank_key(schedule.raw_stop_id) or _extract_station_rank_key(schedule.station_id)
-    return get_station_dwell_time(key if key is not None else schedule.station_id)
+    if schedule.station_id:
+        return get_station_dwell_time(schedule.station_id)
+    raw_key = _extract_station_rank_key(schedule.raw_stop_id)
+    if raw_key:
+        return get_station_dwell_time(raw_key)
+    return get_station_dwell_time(schedule.station_id)
 
 
 def _get_departure_time(schedule: RealtimeStationSchedule) -> Optional[int]:
