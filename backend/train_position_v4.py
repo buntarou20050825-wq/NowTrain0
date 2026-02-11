@@ -4,17 +4,18 @@ MS2: TripUpdate-only 列車位置計算エンジン
 
 TrainSchedule（MS1の成果物）から現在区間と進捗率を計算する。
 """
+
 from __future__ import annotations
 
 import logging
 import math
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, TYPE_CHECKING
-from station_ranks import get_station_dwell_time
-from geometry import build_all_railways_cache, merge_sublines_v2
+from typing import TYPE_CHECKING, Dict, List, Optional
 
-from gtfs_rt_tripupdate import TrainSchedule, RealtimeStationSchedule
+from geometry import build_all_railways_cache, merge_sublines_v2
+from gtfs_rt_tripupdate import RealtimeStationSchedule, TrainSchedule
+from station_ranks import get_station_dwell_time
 
 if TYPE_CHECKING:
     from data_cache import DataCache
@@ -25,70 +26,76 @@ logger = logging.getLogger(__name__)
 # MS8: 物理演算ベースの台形速度制御 (E235系)
 # ============================================================================
 
+
 def calculate_physics_progress(elapsed_time: float, total_duration: float) -> float:
     """
     山手線E235系の性能に基づく台形速度制御で進捗率(0.0-1.0)を計算する。
     """
-    if total_duration <= 0: return 1.0
-    if elapsed_time <= 0: return 0.0
-    if elapsed_time >= total_duration: return 1.0
-    
+    if total_duration <= 0:
+        return 1.0
+    if elapsed_time <= 0:
+        return 0.0
+    if elapsed_time >= total_duration:
+        return 1.0
+
     T_ACC = 30.0  # 加速時間 (0->90km/h)
     T_DEC = 25.0  # 減速時間 (90km/h->0)
-    
+
     if total_duration < (T_ACC + T_DEC):
         factor = total_duration / (T_ACC + T_DEC)
         t_acc, t_dec = T_ACC * factor, T_DEC * factor
     else:
         t_acc, t_dec = T_ACC, T_DEC
-    
+
     t_const = total_duration - t_acc - t_dec
     v_peak = 1.0 / (0.5 * t_acc + t_const + 0.5 * t_dec)
-    
+
     if elapsed_time < t_acc:
-        return 0.5 * (v_peak / t_acc) * (elapsed_time ** 2)
+        return 0.5 * (v_peak / t_acc) * (elapsed_time**2)
     elif elapsed_time < (t_acc + t_const):
         dist_acc = 0.5 * v_peak * t_acc
         return dist_acc + v_peak * (elapsed_time - t_acc)
     else:
         time_left = total_duration - elapsed_time
-        return 1.0 - 0.5 * (v_peak / t_dec) * (time_left ** 2)
-
+        return 1.0 - 0.5 * (v_peak / t_dec) * (time_left**2)
 
 
 # ============================================================================
 # Data Models
 # ============================================================================
 
+
 @dataclass
 class SegmentProgress:
     """列車の現在位置・進捗情報"""
+
     trip_id: str
     train_number: Optional[str]
     direction: Optional[str]
-    
+
     # 現在区間（前駅→次駅）
     prev_station_id: Optional[str]
     next_station_id: Optional[str]
     prev_seq: Optional[int]
     next_seq: Optional[int]
-    
+
     # 時刻と進捗
     now_ts: int
-    t0_departure: Optional[int]    # 前駅の発車時刻
-    t1_arrival: Optional[int]      # 次駅の到着時刻
-    progress: Optional[float]      # 0.0〜1.0（計算不能なら None）
-    status: str                    # "running" / "stopped" / "unknown" / "invalid"
-    
+    t0_departure: Optional[int]  # 前駅の発車時刻
+    t1_arrival: Optional[int]  # 次駅の到着時刻
+    progress: Optional[float]  # 0.0〜1.0（計算不能なら None）
+    status: str  # "running" / "stopped" / "unknown" / "invalid"
+
     # デバッグ用
     feed_timestamp: Optional[int] = None
-    segment_count: int = 0         # 全区間数
-    delay: int = 0                 # MS6: 遅延秒数
+    segment_count: int = 0  # 全区間数
+    delay: int = 0  # MS6: 遅延秒数
 
 
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
 
 def _extract_station_rank_key(value: Optional[str]) -> Optional[str]:
     if not value:
@@ -140,17 +147,18 @@ def _get_departure_time(
             dwell = _get_dwell_seconds(schedule, data_cache)
             return arr + dwell
         return dep
-        
+
     # departureだけある
     if dep is not None:
         return dep
-        
+
     # arrivalだけある（稀なケース）
     if arr is not None:
         dwell = _get_dwell_seconds(schedule, data_cache)
         return arr + dwell
 
     return None
+
 
 def _is_stopped_at_station(
     schedule: RealtimeStationSchedule,
@@ -161,14 +169,15 @@ def _is_stopped_at_station(
     現在時刻がこの駅の到着〜発車の間にあるか判定。
     """
     arr = schedule.arrival_time
-    
+
     # 統一ロジックを使って発車時刻を取得
     effective_dep = _get_departure_time(schedule, data_cache)
-    
+
     if arr is not None and effective_dep is not None:
         return arr <= now_ts <= effective_dep
-    
+
     return False
+
 
 def _get_arrival_time(schedule: RealtimeStationSchedule) -> Optional[int]:
     """
@@ -183,6 +192,7 @@ def _get_arrival_time(schedule: RealtimeStationSchedule) -> Optional[int]:
 # Main Calculation Functions
 # ============================================================================
 
+
 def compute_progress_for_train(
     schedule: TrainSchedule,
     now_ts: Optional[int] = None,
@@ -190,29 +200,29 @@ def compute_progress_for_train(
 ) -> SegmentProgress:
     """
     単一列車の現在位置・進捗を計算する。
-    
+
     Args:
         schedule: TrainSchedule（MS1の出力）
         now_ts: 現在時刻（unix seconds）。None なら time.time() を使用。
-    
+
     Returns:
         SegmentProgress（計算結果）
     """
     # 1. now_ts の決定
     if now_ts is None:
         now_ts = int(time.time())
-    
+
     # feed_timestamp との補正（過去に戻る防止）
     if schedule.feed_timestamp is not None and now_ts < schedule.feed_timestamp:
         now_ts = schedule.feed_timestamp
-    
+
     # 基本情報
     trip_id = schedule.trip_id
     train_number = schedule.train_number
     direction = schedule.direction
     seqs = schedule.ordered_sequences
     schedules_by_seq = schedule.schedules_by_seq
-    
+
     # 2. 無効チェック（区間数が2未満）
     if len(seqs) < 2:
         return SegmentProgress(
@@ -232,7 +242,7 @@ def compute_progress_for_train(
             segment_count=0,
             delay=0,
         )
-    
+
     # 3. 停車判定（各駅の arrival <= now <= departure をチェック）
     for seq in seqs:
         stu = schedules_by_seq.get(seq)
@@ -254,31 +264,31 @@ def compute_progress_for_train(
                 segment_count=len(seqs) - 1,
                 delay=stu.delay,
             )
-    
+
     # 4. 区間判定（走行中）
     # ordered_sequences を i=0..len-2 で走査
     for i in range(len(seqs) - 1):
         prev_seq = seqs[i]
         next_seq = seqs[i + 1]
-        
+
         prev_stu = schedules_by_seq.get(prev_seq)
         next_stu = schedules_by_seq.get(next_seq)
-        
+
         if prev_stu is None or next_stu is None:
             continue
-        
+
         # t0 = 前駅の発車時刻、t1 = 次駅の到着時刻
         t0 = _get_departure_time(prev_stu, data_cache)
         t1 = _get_arrival_time(next_stu)
-        
+
         # 両方存在チェック
         if t0 is None or t1 is None:
             continue
-        
+
         # 無効区間（t1 <= t0）はスキップ
         if t1 <= t0:
             continue
-        
+
         # 現在時刻がこの区間内か判定
         if t0 <= now_ts <= t1:
             # MS8: 物理演算ベースの台形速度制御
@@ -303,20 +313,20 @@ def compute_progress_for_train(
                 segment_count=len(seqs) - 1,
                 delay=next_stu.delay,
             )
-    
+
     # 5. 区間も停車も見つからない → unknown
     # デバッグ用：最初と最後の時刻を記録
     first_stu = schedules_by_seq.get(seqs[0])
     last_stu = schedules_by_seq.get(seqs[-1])
-    
+
     first_time = None
     last_time = None
-    
+
     if first_stu:
         first_time = first_stu.arrival_time or first_stu.departure_time
     if last_stu:
         last_time = last_stu.departure_time or last_stu.arrival_time
-    
+
     return SegmentProgress(
         trip_id=trip_id,
         train_number=train_number,
@@ -343,20 +353,20 @@ def compute_all_progress(
 ) -> List[SegmentProgress]:
     """
     複数列車の現在位置・進捗をまとめて計算する。
-    
+
     Args:
         schedules: {trip_id: TrainSchedule} の辞書（MS1の出力）
         now_ts: 現在時刻（unix seconds）。None なら time.time() を使用。
-    
+
     Returns:
         SegmentProgress のリスト
     """
     # now_ts を統一（全列車で同じ時刻を使う）
     if now_ts is None:
         now_ts = int(time.time())
-    
+
     results: List[SegmentProgress] = []
-    
+
     for trip_id, schedule in schedules.items():
         try:
             progress = compute_progress_for_train(schedule, now_ts, data_cache)
@@ -364,29 +374,32 @@ def compute_all_progress(
         except Exception as e:
             logger.error(f"Failed to compute progress for {trip_id}: {e}")
             # エラーでも結果を返す
-            results.append(SegmentProgress(
-                trip_id=trip_id,
-                train_number=schedule.train_number,
-                direction=schedule.direction,
-                prev_station_id=None,
-                next_station_id=None,
-                prev_seq=None,
-                next_seq=None,
-                now_ts=now_ts,
-                t0_departure=None,
-                t1_arrival=None,
-                progress=None,
-                status="invalid",
-                feed_timestamp=schedule.feed_timestamp,
-                segment_count=0,
-            ))
-    
+            results.append(
+                SegmentProgress(
+                    trip_id=trip_id,
+                    train_number=schedule.train_number,
+                    direction=schedule.direction,
+                    prev_station_id=None,
+                    next_station_id=None,
+                    prev_seq=None,
+                    next_seq=None,
+                    now_ts=now_ts,
+                    t0_departure=None,
+                    t1_arrival=None,
+                    progress=None,
+                    status="invalid",
+                    feed_timestamp=schedule.feed_timestamp,
+                    segment_count=0,
+                )
+            )
+
     return results
 
 
 # ============================================================================
 # Debug/Test Function
 # ============================================================================
+
 
 def debug_progress_stats(results: List[SegmentProgress]) -> Dict[str, int]:
     """
@@ -399,11 +412,11 @@ def debug_progress_stats(results: List[SegmentProgress]) -> Dict[str, int]:
         "invalid": 0,
         "total": len(results),
     }
-    
+
     for r in results:
         if r.status in stats:
             stats[r.status] += 1
-    
+
     return stats
 
 
@@ -416,24 +429,26 @@ def debug_progress_stats(results: List[SegmentProgress]) -> Dict[str, int]:
 # ============================================================================
 _SHAPE_CACHE: Dict[str, List[tuple[float, float]]] = {}
 
+
 def get_distance_meters(lat1, lon1, lat2, lon2):
     """Haversine formula"""
     R = 6371000
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2) * math.sin(dlambda/2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
+
 
 def get_merged_coords(cache, line_id) -> List[tuple[float, float]]:
     if line_id in _SHAPE_CACHE:
         return _SHAPE_CACHE[line_id]
-    
+
     # 1. Find the railway entry
     railways = cache.coordinates.get("railways", [])
     entry = next((r for r in railways if r.get("id") == line_id), None)
-    
+
     if not entry:
         return []
 
@@ -443,21 +458,18 @@ def get_merged_coords(cache, line_id) -> List[tuple[float, float]]:
 
     # 3. Specific loop flag
     is_loop = entry.get("loop", False)
-    
+
     # 4. robust merge
-    merged_list = merge_sublines_v2(
-        entry.get("sublines", []),
-        is_loop=is_loop,
-        all_railways_cache=all_railways_cache
-    )
-            
+    merged_list = merge_sublines_v2(entry.get("sublines", []), is_loop=is_loop, all_railways_cache=all_railways_cache)
+
     # Convert to list of tuples (lon, lat)
     merged_tuples = [(c[0], c[1]) for c in merged_list]
-    
+
     if merged_tuples:
         _SHAPE_CACHE[line_id] = merged_tuples
-        
+
     return merged_tuples
+
 
 def _get_station_coord_v4(station_id, cache) -> Optional[tuple[float, float]]:
     # Step 2: Unified accessor (DB-backed)
@@ -465,7 +477,7 @@ def _get_station_coord_v4(station_id, cache) -> Optional[tuple[float, float]]:
     if hasattr(cache, "get_station_coord"):
         c = cache.get_station_coord(station_id)
         if c:
-             return (c[0], c[1])
+            return (c[0], c[1])
 
     # Fallback to direct access if method missing
     coord = cache.station_positions.get(station_id)
@@ -473,19 +485,19 @@ def _get_station_coord_v4(station_id, cache) -> Optional[tuple[float, float]]:
         return (coord[0], coord[1])
     return None
 
+
 def calculate_bearing(lat1, lon1, lat2, lon2):
     """
     2点間の方位角（北=0度, 時計回り）を計算する。
     """
     import math
-    
+
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dlambda = math.radians(lon2 - lon1)
-    
+
     y = math.sin(dlambda) * math.cos(phi2)
-    x = math.cos(phi1) * math.sin(phi2) - \
-        math.sin(phi1) * math.cos(phi2) * math.cos(dlambda)
-    
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlambda)
+
     theta = math.atan2(y, x)
     bearing = (math.degrees(theta) + 360) % 360
     return bearing
@@ -498,19 +510,19 @@ def calculate_coordinates(
 ) -> tuple[float, float, float] | None:
     """
     MS3: SegmentProgress から座標を計算する（線路形状追従）。
-    
+
     Args:
         progress_data: SegmentProgress（MS2の出力）
         cache: DataCache インスタンス
         line_id: 路線ID (例: "JR-East.ChuoRapid")
-        
+
     Returns:
         (latitude, longitude, bearing) のタプル。計算不能なら None。
         bearing は北を0度とする時計回りの角度(0-360)。
     """
-    
+
     status = progress_data.status
-    
+
     # 1) stopped: 停車駅の座標を返す
     if status == "stopped":
         station_id = progress_data.prev_station_id or progress_data.next_station_id
@@ -522,13 +534,13 @@ def calculate_coordinates(
                 # ここでは暫定 0
                 return (lat, lon, 0.0)
         return None
-    
+
     # 2) running: 線路スナップ
     if status == "running":
         progress = progress_data.progress
         prev_station_id = progress_data.prev_station_id
         next_station_id = progress_data.next_station_id
-        
+
         if progress is None or not prev_station_id or not next_station_id:
             return None
 
@@ -562,9 +574,9 @@ def calculate_coordinates(
 
             # 最近傍探索 (距離ガード: 500m)
             idx_prev = -1
-            min_d_prev = float('inf')
+            min_d_prev = float("inf")
             idx_next = -1
-            min_d_next = float('inf')
+            min_d_next = float("inf")
 
             # 単純全探索
             for i, (lon, lat) in enumerate(coords):
@@ -572,7 +584,7 @@ def calculate_coordinates(
                 if d_prev < min_d_prev:
                     min_d_prev = d_prev
                     idx_prev = i
-                
+
                 d_next = get_distance_meters(e_lat, e_lon, lat, lon)
                 if d_next < min_d_next:
                     min_d_next = d_next
@@ -597,11 +609,11 @@ def calculate_coordinates(
             dists = [0.0]
             for i in range(len(path) - 1):
                 p1 = path[i]
-                p2 = path[i+1]
+                p2 = path[i + 1]
                 d = get_distance_meters(p1[1], p1[0], p2[1], p2[0])
                 total_dist += d
                 dists.append(total_dist)
-            
+
             if total_dist <= 0:
                 return linear_fallback()
 
@@ -610,32 +622,32 @@ def calculate_coordinates(
             # target_dist に対応する区間を探す
             found_idx = 0
             for i in range(len(dists) - 1):
-                if dists[i] <= target_dist <= dists[i+1]:
+                if dists[i] <= target_dist <= dists[i + 1]:
                     found_idx = i
                     break
-            
+
             # 区間内補間
             # d_start = dists[found_idx] # unused
-            d_end = dists[found_idx+1]
+            d_end = dists[found_idx + 1]
             seg_len = d_end - dists[found_idx]
-            
+
             # p_start, p_end for bearing calculation
-            p_start = path[found_idx] # (lon, lat)
-            p_end = path[found_idx+1] # (lon, lat)
-            
+            p_start = path[found_idx]  # (lon, lat)
+            p_end = path[found_idx + 1]  # (lon, lat)
+
             if seg_len <= 0:
                 # 区間長0なら始点座標
                 bearing = calculate_bearing(p_start[1], p_start[0], p_end[1], p_end[0]) if len(path) > 1 else 0
                 return (p_start[1], p_start[0], bearing)
 
             ratio = (target_dist - dists[found_idx]) / seg_len
-            
+
             res_lon = p_start[0] + (p_end[0] - p_start[0]) * ratio
             res_lat = p_start[1] + (p_end[1] - p_start[1]) * ratio
-            
+
             # 方位角の計算
             bearing = calculate_bearing(p_start[1], p_start[0], p_end[1], p_end[0])
-            
+
             return (res_lat, res_lon, bearing)
 
         except Exception as e:

@@ -24,3 +24,7 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 # pytest-asyncio のモード設定
 asyncio_mode = "auto"
+
+
+
+

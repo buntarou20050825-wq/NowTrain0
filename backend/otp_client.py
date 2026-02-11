@@ -5,12 +5,14 @@ OpenTripPlanner GraphQL API クライアント
 OTP 2.x では REST API が廃止され、GraphQL API のみ使用可能。
 エンドポイント: http://localhost:8080/otp/routers/default/index/graphql
 """
+
 from __future__ import annotations
 
-import httpx
 import logging
-from typing import Dict, List, Optional, Any
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +86,7 @@ async def search_route(
     to_lon: float,
     date: str,  # YYYY-MM-DD
     time: str,  # HH:MM
-    arrive_by: bool = False
+    arrive_by: bool = False,
 ) -> Dict[str, Any]:
     """
     OTP GraphQL API で経路検索を実行
@@ -109,20 +111,13 @@ async def search_route(
         "toLon": to_lon,
         "date": date,
         "time": time,
-        "arriveBy": arrive_by
+        "arriveBy": arrive_by,
     }
 
-    payload = {
-        "query": PLAN_QUERY,
-        "variables": variables
-    }
+    payload = {"query": PLAN_QUERY, "variables": variables}
 
     try:
-        response = await client.post(
-            OTP_GRAPHQL_ENDPOINT,
-            json=payload,
-            timeout=30.0
-        )
+        response = await client.post(OTP_GRAPHQL_ENDPOINT, json=payload, timeout=30.0)
         response.raise_for_status()
         return response.json()
     except httpx.TimeoutException:
@@ -166,12 +161,9 @@ def parse_otp_response(otp_response: Dict[str, Any]) -> List[Dict[str, Any]]:
             parsed_leg = _parse_leg(leg)
             legs.append(parsed_leg)
 
-        results.append({
-            "start_time": start_time,
-            "end_time": end_time,
-            "duration_minutes": duration_seconds // 60,
-            "legs": legs
-        })
+        results.append(
+            {"start_time": start_time, "end_time": end_time, "duration_minutes": duration_seconds // 60, "legs": legs}
+        )
 
     return results
 
@@ -208,14 +200,14 @@ def _parse_leg(leg: Dict[str, Any]) -> Dict[str, Any]:
             "name": from_place.get("name", ""),
             "lat": from_place.get("lat"),
             "lon": from_place.get("lon"),
-            "stop_id": _extract_stop_id(from_place)
+            "stop_id": _extract_stop_id(from_place),
         },
         "to": {
             "name": to_place.get("name", ""),
             "lat": to_place.get("lat"),
             "lon": to_place.get("lon"),
-            "stop_id": _extract_stop_id(to_place)
-        }
+            "stop_id": _extract_stop_id(to_place),
+        },
     }
 
     # 公共交通機関モードの場合、路線・列車情報を追加
@@ -228,7 +220,7 @@ def _parse_leg(leg: Dict[str, Any]) -> Dict[str, Any]:
         parsed["route"] = {
             "gtfs_id": route.get("gtfsId", ""),
             "short_name": route.get("shortName", ""),
-            "long_name": route.get("longName", "")
+            "long_name": route.get("longName", ""),
         }
         parsed["trip_id"] = trip.get("gtfsId", "") if trip else ""
 
@@ -239,7 +231,7 @@ def _parse_leg(leg: Dict[str, Any]) -> Dict[str, Any]:
                 "name": stop.get("name", ""),
                 "lat": stop.get("lat"),
                 "lon": stop.get("lon"),
-                "gtfs_id": stop.get("gtfsId", "")
+                "gtfs_id": stop.get("gtfsId", ""),
             }
             for stop in intermediate
         ]

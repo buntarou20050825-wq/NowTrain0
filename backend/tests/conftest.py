@@ -4,6 +4,7 @@ pytest 共通設定。
 backend/ ディレクトリを sys.path に追加し、
 各テストファイル内での sys.path.insert ハックを不要にする。
 """
+
 import sys
 from pathlib import Path
 

@@ -1,9 +1,11 @@
-import urllib.request
 import json
+import urllib.request
+
 
 def fetch(url):
     r = urllib.request.urlopen(url)
     return json.loads(r.read())
+
 
 print("=== Time Status ===")
 status = fetch("http://localhost:8000/api/debug/time-status")
@@ -20,13 +22,13 @@ if tt:
     print(f"time_travel.virtual_now: {tt.get('virtual_now')}")
 
 positions = data.get("positions", [])
-print(f"\nFirst 10 positions:")
+print("\nFirst 10 positions:")
 for p in positions[:10]:
     loc = p.get("location", {})
     print(
-        f"  {p.get('train_number','?'):>6s} "
-        f"{p.get('direction','?'):>12s} "
-        f"{p.get('status','?'):>8s} "
+        f"  {p.get('train_number', '?'):>6s} "
+        f"{p.get('direction', '?'):>12s} "
+        f"{p.get('status', '?'):>8s} "
         f"prog={p.get('progress')} "
         f"lat={loc.get('latitude')} lon={loc.get('longitude')}"
     )
@@ -41,9 +43,9 @@ print(f"total_trains: {data2.get('total_trains')}")
 for p in data2.get("positions", [])[:5]:
     loc = p.get("location", {})
     print(
-        f"  {p.get('train_number','?'):>6s} "
-        f"{p.get('direction','?'):>12s} "
-        f"{p.get('status','?'):>8s} "
+        f"  {p.get('train_number', '?'):>6s} "
+        f"{p.get('direction', '?'):>12s} "
+        f"{p.get('status', '?'):>8s} "
         f"prog={p.get('progress')} "
         f"lat={loc.get('latitude')} lon={loc.get('longitude')}"
     )

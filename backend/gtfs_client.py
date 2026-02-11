@@ -2,8 +2,10 @@
 GTFS-RT（リアルタイム列車位置情報）を取得するクライアント
 公共交通オープンデータセンター（ODPT）のAPIを使用
 """
-import os
+
 import logging
+import os
+
 import requests
 from google.transit import gtfs_realtime_pb2
 
@@ -16,51 +18,50 @@ ODPT_TRIP_UPDATE_URL = "https://api-challenge.odpt.org/api/v4/gtfs/realtime/jrea
 
 class GtfsClient:
     """GTFS-RTデータを取得するクライアント"""
-    
+
     def __init__(self):
         """環境変数からAPIキーを読み込む"""
         self.api_key = os.getenv("ODPT_API_KEY", "").strip()
         if not self.api_key:
             logger.warning("ODPT_API_KEY is not set in environment variables.")
-    
+
     def fetch_vehicle_positions(self):
         """
         列車位置情報（VehiclePosition）を取得
-        
+
         Returns:
             list: GTFS-RTのentityリスト。エラー時は空リスト。
         """
         return self._fetch_feed(ODPT_VEHICLE_POSITION_URL)
-    
+
     def fetch_trip_updates(self):
         """
         遅延情報（TripUpdate）を取得
         ※ MS4-2以降で使用
-        
+
         Returns:
             list: GTFS-RTのentityリスト。エラー時は空リスト。
         """
         return self._fetch_feed(ODPT_TRIP_UPDATE_URL)
-    
+
     def _fetch_feed(self, url):
         """
         GTFS-RTフィードを取得してパースする共通処理
-        
+
         Args:
             url (str): GTFS-RTエンドポイントURL
-            
+
         Returns:
             list: FeedMessageのentityリスト
         """
         if not self.api_key:
             logger.warning("ODPT_API_KEY not set, returning empty list")
             return []
-        
-        
+
         try:
             # APIキーはクエリパラメータで送る
             params = {"acl:consumerKey": self.api_key}
-            
+
             logger.info(f"Fetching GTFS-RT from {url}")
             logger.info(f"Params: {params}")
             # 接続タイムアウトと読み取りタイムアウトを分離
@@ -69,21 +70,21 @@ class GtfsClient:
             if resp.status_code != 200:
                 logger.error(f"Response text: {resp.text}")
             resp.raise_for_status()
-            
+
             logger.info(f"Received {len(resp.content)} bytes")
-            
+
             # Protocol Buffersをパース
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(resp.content)
-            
+
             # ヘッダー情報をログ出力
-            if feed.HasField('header'):
+            if feed.HasField("header"):
                 logger.info(f"Feed timestamp: {feed.header.timestamp}")
                 logger.info(f"GTFS version: {feed.header.gtfs_realtime_version}")
-            
+
             logger.info(f"Parsed {len(feed.entity)} entities")
             return feed.entity
-            
+
         except requests.exceptions.Timeout:
             logger.error("GTFS-RT request timed out")
             return []

@@ -2,14 +2,16 @@
 import json
 import logging
 from pathlib import Path
+
 from sqlalchemy.orm import Session
 
 # backendパッケージとして実行されることを想定 (python -m backend.import_data)
-from .database import SessionLocal, init_db, Station, StationRank
+from .database import SessionLocal, Station, StationRank, init_db
 from .station_ranks import STATION_RANKS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 def import_stations(db: Session, json_path: Path):
     if not json_path.exists():
@@ -41,7 +43,7 @@ def import_stations(db: Session, json_path: Path):
                 line_id = ""
         elif isinstance(railway, str):
             line_id = railway
-        
+
         lon, lat = None, None
         if coord and len(coord) >= 2:
             lon = float(coord[0])
@@ -56,13 +58,14 @@ def import_stations(db: Session, json_path: Path):
             lon=lon,
             lat=lat,
         )
-        
+
         # Upsert (merge)
         db.merge(station)
         count += 1
-    
+
     db.commit()
     logger.info(f"Imported/Updated {count} stations.")
+
 
 def import_ranks(db: Session):
     count = 0
@@ -71,28 +74,25 @@ def import_ranks(db: Session):
         # station_ranks.py comments:
         # 50: S, 35: A, 20: B(Default)
         # ここでは dwell_time を正として、rank カラムは補足情報的に入れる
-        
+
         rank_char = "B"
         if dwell >= 50:
             rank_char = "S"
         elif dwell >= 35:
             rank_char = "A"
-        
-        rank_obj = StationRank(
-            station_id=s_id,
-            rank=rank_char,
-            dwell_time=dwell
-        )
+
+        rank_obj = StationRank(station_id=s_id, rank=rank_char, dwell_time=dwell)
         db.merge(rank_obj)
         count += 1
-        
+
     db.commit()
     logger.info(f"Imported/Updated {count} station ranks.")
+
 
 def main():
     logger.info("Initializing database...")
     init_db()
-    
+
     db = SessionLocal()
     try:
         # 1. Stations
@@ -100,18 +100,19 @@ def main():
         stations_json_path = Path("data/mini-tokyo-3d/stations.json")
         logger.info(f"Importing stations from {stations_json_path}...")
         import_stations(db, stations_json_path)
-        
+
         # 2. Ranks
         logger.info("Importing station ranks...")
         import_ranks(db)
-        
+
         logger.info("Data import completed successfully.")
-        
+
     except Exception as e:
         logger.error(f"Import failed: {e}")
         db.rollback()
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     main()

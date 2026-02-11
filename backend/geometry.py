@@ -1,5 +1,6 @@
 # backend/geometry.py
-from typing import List, Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+
 
 def build_all_railways_cache(coordinates: Dict) -> Dict[str, List[List[float]]]:
     """
@@ -26,10 +27,7 @@ def build_all_railways_cache(coordinates: Dict) -> Dict[str, List[List[float]]]:
     return cache
 
 
-def resolve_subline_coords(
-    subline: Dict,
-    all_railways_cache: Dict[str, List[List[float]]]
-) -> List[List[float]]:
+def resolve_subline_coords(subline: Dict, all_railways_cache: Dict[str, List[List[float]]]) -> List[List[float]]:
     """
     sublineの座標を解決する。
     - type=main: subline自身のcoordsを返す
@@ -69,10 +67,10 @@ def resolve_subline_coords(
     end_point = coords[-1]
 
     def find_nearest_idx(point, coord_list):
-        min_dist = float('inf')
+        min_dist = float("inf")
         min_idx = 0
         for i, c in enumerate(coord_list):
-            dist = (c[0] - point[0])**2 + (c[1] - point[1])**2
+            dist = (c[0] - point[0]) ** 2 + (c[1] - point[1]) ** 2
             if dist < min_dist:
                 min_dist = dist
                 min_idx = i
@@ -83,16 +81,14 @@ def resolve_subline_coords(
 
     # 範囲を切り出し
     if start_idx <= end_idx:
-        return ref_coords[start_idx:end_idx + 1]
+        return ref_coords[start_idx : end_idx + 1]
     else:
         # 逆方向の場合は反転
-        return list(reversed(ref_coords[end_idx:start_idx + 1]))
+        return list(reversed(ref_coords[end_idx : start_idx + 1]))
 
 
 def merge_sublines_v2(
-    sublines: List[Dict],
-    is_loop: bool = False,
-    all_railways_cache: Optional[Dict[str, List[List[float]]]] = None
+    sublines: List[Dict], is_loop: bool = False, all_railways_cache: Optional[Dict[str, List[List[float]]]] = None
 ) -> List[List[float]]:
     """
     sublinesを正しい順序でマージし、連続した座標配列を返す。
@@ -118,7 +114,7 @@ def merge_sublines_v2(
 
     # 1. 各sublineの座標を解決（type=subなら参照先を使用）
     start_coords: Dict[tuple, List[int]] = {}  # coord_key -> [subline_index, ...]
-    end_coords: Dict[tuple, List[int]] = {}    # coord_key -> [subline_index, ...]
+    end_coords: Dict[tuple, List[int]] = {}  # coord_key -> [subline_index, ...]
 
     valid_sublines: List[Tuple[int, List[List[float]]]] = []
     for i, sub in enumerate(sublines):
@@ -238,7 +234,7 @@ def merge_sublines_fallback(sublines: List[Dict]) -> List[List[float]]:
 
     for _ in range(len(valid) - 1):
         best_idx = -1
-        best_dist = float('inf')
+        best_dist = float("inf")
         best_reversed = False
 
         for i, (_, coords) in enumerate(valid):

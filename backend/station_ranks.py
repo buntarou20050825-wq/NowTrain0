@@ -34,7 +34,6 @@ STATION_RANKS = {
     "JR-East.Yamanote.Nippori": 35,  # 日暮里 (JY07) - Aランク
     "JR-East.Yamanote.Okachimachi": 35,  # 御徒町 (JY04) - Aランク
     "JR-East.Yamanote.Kanda": 35,  # 神田 (JY02) - Aランク
-
     # ==========================================
     # 中央線快速 (Chuo Rapid)
     # ==========================================
@@ -51,6 +50,7 @@ STATION_RANKS = {
     "JR-East.ChuoRapid.Hachioji": 35,  # 八王子 (JC22)
     "JR-East.ChuoRapid.Takao": 35,  # 高尾 (JC24)
 }
+
 
 def get_station_dwell_time(station_id: str) -> int:
     """

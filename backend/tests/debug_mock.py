@@ -1,15 +1,20 @@
-import sys, os, traceback
+import os
+import sys
+import traceback
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
+
 JST = ZoneInfo("Asia/Tokyo")
 
 print("=== Step 1: TimeManager ===")
 try:
     from time_manager import TimeManager
+
     tm = TimeManager()
     tm.set_virtual_time("2026-02-12T08:30:00+09:00")
     print("  Virtual:", tm.is_virtual(), "now:", tm.now_datetime().isoformat())
@@ -24,14 +29,18 @@ print("=== Step 2: MockGenerator ===")
 schedules = None
 vt = None
 try:
-    from timetable_models import TimetableTrain, StopTime
     from mock_trip_generator import generate_mock_schedules
+    from timetable_models import StopTime, TimetableTrain
 
     train = TimetableTrain(
-        base_id="test", service_type="Weekday",
-        line_id="JR-East.Yamanote", number="400G",
-        train_type="Local", direction="OuterLoop",
-        origin_stations=[], destination_stations=[],
+        base_id="test",
+        service_type="Weekday",
+        line_id="JR-East.Yamanote",
+        number="400G",
+        train_type="Local",
+        direction="OuterLoop",
+        origin_stations=[],
+        destination_stations=[],
         stops=[
             StopTime("JR-East.Yamanote.Osaki", 30600, 30620),
             StopTime("JR-East.Yamanote.Gotanda", 30740, 30760),
@@ -57,6 +66,7 @@ print("=== Step 3: Physics ===")
 try:
     if schedules and vt:
         from train_position_v4 import compute_progress_for_train
+
         for tid, sched in schedules.items():
             result = compute_progress_for_train(sched, now_ts=vt)
             print("  status:", result.status, "progress:", result.progress)

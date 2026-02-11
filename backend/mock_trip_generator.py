@@ -5,16 +5,16 @@
 静的時刻表 (TimetableTrain) から TrainSchedule を生成し、
 fetch_trip_updates() の代替として機能する。
 """
+
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Dict, List, Optional
-
 from zoneinfo import ZoneInfo
 
 from gtfs_rt_tripupdate import RealtimeStationSchedule, TrainSchedule
-from timetable_models import TimetableTrain, StopTime
+from timetable_models import StopTime, TimetableTrain
 from train_state import determine_service_type, get_service_date
 
 if TYPE_CHECKING:
@@ -34,10 +34,7 @@ def _get_midnight_unix(virtual_now_ts: int) -> int:
     """
     dt = datetime.fromtimestamp(virtual_now_ts, tz=JST)
     svc_date = get_service_date(dt)
-    midnight = datetime(
-        svc_date.year, svc_date.month, svc_date.day,
-        0, 0, 0, tzinfo=JST
-    )
+    midnight = datetime(svc_date.year, svc_date.month, svc_date.day, 0, 0, 0, tzinfo=JST)
     return int(midnight.timestamp())
 
 
@@ -113,9 +110,9 @@ def _timetable_to_train_schedule(
             station_id=stop.station_id,
             arrival_time=arr_unix,
             departure_time=dep_unix,
-            resolved=True,        # 静的時刻表なので常に解決済み
+            resolved=True,  # 静的時刻表なので常に解決済み
             raw_stop_id=None,
-            delay=0,              # モックは定刻運行
+            delay=0,  # モックは定刻運行
         )
 
         schedules_by_seq[seq] = rss
@@ -129,7 +126,7 @@ def _timetable_to_train_schedule(
         train_number=train.number,
         start_date=None,
         direction=train.direction,
-        feed_timestamp=virtual_now_ts,   # モックの feed_timestamp は仮想時刻
+        feed_timestamp=virtual_now_ts,  # モックの feed_timestamp は仮想時刻
         schedules_by_seq=schedules_by_seq,
         ordered_sequences=ordered_sequences,
     )
@@ -194,8 +191,7 @@ def generate_mock_schedules(
         active_count += 1
 
     logger.info(
-        "MockGenerator: service=%s, route=%s, "
-        "candidates=%d, active=%d (window=±%dmin)",
+        "MockGenerator: service=%s, route=%s, candidates=%d, active=%d (window=±%dmin)",
         service_type,
         target_route_id or "ALL",
         filtered_count,

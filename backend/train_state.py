@@ -4,10 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Literal
-
 from zoneinfo import ZoneInfo
 
-from timetable_models import TimetableTrain, StopTime
+from timetable_models import StopTime, TimetableTrain
 
 if TYPE_CHECKING:
     # 型ヒント用。実行時には import されないので循環 import を回避できる
@@ -21,9 +20,9 @@ SERVICE_DAY_START_HOUR = 4
 # ============================================================================
 # Phase 1: Blend Constants (GTFS-RT + Timetable hybrid)
 # ============================================================================
-BLEND_FACTOR = 0.3              # 補正の強さ（0.0〜1.0）
-STALE_THRESHOLD_SEC = 120       # これより古いGTFS-RTは無視（秒）
-MAX_PROGRESS_DELTA = 0.5        # 進捗差がこれ以上なら異常値として無視（0.3→0.5に緩和）
+BLEND_FACTOR = 0.3  # 補正の強さ（0.0〜1.0）
+STALE_THRESHOLD_SEC = 120  # これより古いGTFS-RTは無視（秒）
+MAX_PROGRESS_DELTA = 0.5  # 進捗差がこれ以上なら異常値として無視（0.3→0.5に緩和）
 
 
 # ============================================================================
@@ -40,6 +39,7 @@ class TrainSegment:
 
     時間範囲は [start_sec, end_sec) の半開区間で表現する。
     """
+
     train: TimetableTrain
 
     segment_type: SegmentType  # "moving" or "stopped"
@@ -61,6 +61,7 @@ class TrainSectionState:
     """
     列車が今どこにいるか（停車 or 走行）を表す抽象状態。
     """
+
     train: TimetableTrain
 
     # 状態識別
@@ -84,6 +85,7 @@ class TrainSectionState:
 # ============================================================================
 # 時間系ユーティリティ
 # ============================================================================
+
 
 def get_service_date(dt_jst: datetime) -> datetime.date:
     """
@@ -154,6 +156,7 @@ def determine_service_type(dt_jst: datetime) -> str:
 # ============================================================================
 # セグメント構築ロジック
 # ============================================================================
+
 
 def build_segments_for_train(train: TimetableTrain) -> list[TrainSegment]:
     """
@@ -285,6 +288,7 @@ def build_yamanote_segments(trains: list[TimetableTrain]) -> list[TrainSegment]:
 # セグメント → 現在状態 の変換
 # ============================================================================
 
+
 def _state_from_segment(seg: TrainSegment, current_sec: int) -> TrainSectionState | None:
     """
     1つの TrainSegment について、指定時刻 current_sec における状態を返す。
@@ -340,6 +344,7 @@ def _state_from_segment(seg: TrainSegment, current_sec: int) -> TrainSectionStat
 # ============================================================================
 # メイン関数
 # ============================================================================
+
 
 def get_yamanote_trains_at(
     dt_jst: datetime,
@@ -407,6 +412,7 @@ def get_yamanote_trains_at(
 # デバッグ用関数
 # ============================================================================
 
+
 def debug_dump_trains_at(dt_jst: datetime, data_cache: DataCache, limit: int = 10) -> None:
     """
     指定時刻における山手線の列車状態をコンソールにダンプするデバッグ用関数。
@@ -424,10 +430,7 @@ def debug_dump_trains_at(dt_jst: datetime, data_cache: DataCache, limit: int = 1
 
     for i, s in enumerate(states[:limit], 1):
         if s.is_stopped:
-            print(
-                f"{i:2d}. {s.train.number:>6s} {s.train.direction:>10s} "
-                f"[停車] {s.stopped_at_station_id}"
-            )
+            print(f"{i:2d}. {s.train.number:>6s} {s.train.direction:>10s} [停車] {s.stopped_at_station_id}")
         else:
             print(
                 f"{i:2d}. {s.train.number:>6s} {s.train.direction:>10s} "
@@ -443,19 +446,16 @@ def debug_dump_trains_at(dt_jst: datetime, data_cache: DataCache, limit: int = 1
 # Phase 1: Blend Logic (GTFS-RT + Timetable hybrid)
 # ============================================================================
 
-def blend_progress(
-    ideal: float,
-    rt: float,
-    staleness_sec: float
-) -> tuple[float, str]:
+
+def blend_progress(ideal: float, rt: float, staleness_sec: float) -> tuple[float, str]:
     """
     時刻表ベースの進捗とGTFS-RTベースの進捗をブレンドする。
-    
+
     Args:
         ideal: 時刻表ベースの進捗 (0.0〜1.0)
         rt: GTFS-RTベースの進捗 (0.0〜1.0)
         staleness_sec: GTFS-RTデータの古さ（現在時刻 - GTFS-RTタイムスタンプ）
-    
+
     Returns:
         (blended_progress, data_quality)
         - blended_progress: ブレンド後の進捗 (0.0〜1.0)
@@ -464,21 +464,21 @@ def blend_progress(
     # 1. 鮮度チェック: データが古すぎたら時刻表のみ使用
     if staleness_sec > STALE_THRESHOLD_SEC:
         return (max(0.0, min(1.0, ideal)), "timetable_only")
-    
+
     # 2. 乖離チェック: 差が大きすぎたら異常値として無視
     delta = rt - ideal
     if abs(delta) > MAX_PROGRESS_DELTA:
         return (max(0.0, min(1.0, ideal)), "rejected")
-    
+
     # 3. ブレンド計算
     blended = ideal + BLEND_FACTOR * delta
-    
+
     # 4. 結果を 0.0〜1.0 にクランプ
     blended = max(0.0, min(1.0, blended))
-    
+
     # 5. データ品質の判定
     quality = "good" if staleness_sec < 60 else "stale"
-    
+
     return (blended, quality)
 
 

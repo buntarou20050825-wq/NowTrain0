@@ -5,8 +5,9 @@
 静的時刻表から生成されたモックデータが、既存の物理演算パイプラインを
 正しく通過できるかを検証する。
 """
-import sys
+
 import os
+import sys
 import unittest
 from datetime import datetime
 
@@ -14,6 +15,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from zoneinfo import ZoneInfo
+
 from time_manager import TimeManager
 from train_state import determine_service_type, get_service_date
 
@@ -61,7 +63,7 @@ class TestMockGenerator(unittest.TestCase):
 
     def _make_minimal_data_cache(self):
         """テスト用の簡易 DataCache モック"""
-        from timetable_models import TimetableTrain, StopTime
+        from timetable_models import StopTime, TimetableTrain
 
         # 山手線の列車 1本（平日、3駅）
         train = TimetableTrain(
@@ -76,18 +78,18 @@ class TestMockGenerator(unittest.TestCase):
             stops=[
                 StopTime(
                     station_id="JR-East.Yamanote.Osaki",
-                    arrival_sec=30600,     # 08:30:00
-                    departure_sec=30620,   # 08:30:20
+                    arrival_sec=30600,  # 08:30:00
+                    departure_sec=30620,  # 08:30:20
                 ),
                 StopTime(
                     station_id="JR-East.Yamanote.Gotanda",
-                    arrival_sec=30740,     # 08:32:20
-                    departure_sec=30760,   # 08:32:40
+                    arrival_sec=30740,  # 08:32:20
+                    departure_sec=30760,  # 08:32:40
                 ),
                 StopTime(
                     station_id="JR-East.Yamanote.Meguro",
-                    arrival_sec=30880,     # 08:34:40
-                    departure_sec=30900,   # 08:35:00
+                    arrival_sec=30880,  # 08:34:40
+                    departure_sec=30900,  # 08:35:00
                 ),
             ],
         )
@@ -145,12 +147,14 @@ class TestMockGenerator(unittest.TestCase):
         for trip_id, sched in schedules.items():
             result = compute_progress_for_train(sched, now_ts=virtual_now)
 
-            self.assertIn(result.status, ("running", "stopped", "unknown"),
-                          f"Status should be valid, got '{result.status}' for {trip_id}")
+            self.assertIn(
+                result.status,
+                ("running", "stopped", "unknown"),
+                f"Status should be valid, got '{result.status}' for {trip_id}",
+            )
 
             # invalid でないことを確認
-            self.assertNotEqual(result.status, "invalid",
-                                f"TrainSchedule for {trip_id} should not be invalid")
+            self.assertNotEqual(result.status, "invalid", f"TrainSchedule for {trip_id} should not be invalid")
 
             print(
                 f"  {trip_id}: status={result.status}, "
@@ -180,17 +184,13 @@ class TestMockGenerator(unittest.TestCase):
                 # arrival <= departure
                 if stu.arrival_time is not None and stu.departure_time is not None:
                     self.assertLessEqual(
-                        stu.arrival_time, stu.departure_time,
-                        f"{trip_id} seq={seq}: arrival > departure"
+                        stu.arrival_time, stu.departure_time, f"{trip_id} seq={seq}: arrival > departure"
                     )
 
                 # prev_departure <= current_arrival (monotonic)
                 arr = stu.arrival_time or stu.departure_time
                 if prev_dep is not None and arr is not None:
-                    self.assertLessEqual(
-                        prev_dep, arr,
-                        f"{trip_id} seq={seq}: non-monotonic times"
-                    )
+                    self.assertLessEqual(prev_dep, arr, f"{trip_id} seq={seq}: non-monotonic times")
 
                 prev_dep = stu.departure_time or stu.arrival_time
 

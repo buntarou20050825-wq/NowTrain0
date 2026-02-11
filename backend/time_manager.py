@@ -5,13 +5,13 @@
 システム全体の「現在時刻」を仮想時刻に差し替えるシングルトン。
 環境変数 VIRTUAL_TIME で起動時に設定可能。
 """
+
 from __future__ import annotations
 
 import logging
 import time
 from datetime import datetime
 from typing import Optional
-
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ class TimeManager:
     """仮想時刻管理シングルトン"""
 
     def __init__(self) -> None:
-        self._offset_sec: int = 0       # real time からのオフセット（秒）
+        self._offset_sec: int = 0  # real time からのオフセット（秒）
         self._virtual: bool = False
 
     # ------------------------------------------------------------------
