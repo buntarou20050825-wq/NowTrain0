@@ -163,7 +163,7 @@ app.add_middleware(
 
 @app.api_route("/api/health", methods=["GET", "HEAD"])
 def health():
-    return {"ok": True}
+    return {"status": "ok"}
 
 
 @app.get("/api/lines")
