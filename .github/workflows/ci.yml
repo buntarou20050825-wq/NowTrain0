@@ -128,31 +128,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # -----------------------------------------------------------------------
+      # 1. Backend Setup & Start
+      # -----------------------------------------------------------------------
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('backend/requirements*.txt') }}
-          restore-keys: |
-            pip-${{ runner.os }}-
-
-      - name: Install backend dependencies
+      - name: Install dependencies
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+
+      - name: Start Backend in Background
+        working-directory: backend
+        env:
+          VIRTUAL_TIME: "2026-02-12T08:30:00+09:00"
+          FRONTEND_URL: "http://127.0.0.1:4173"
+        run: |
+          nohup python -m uvicorn main:app --host 127.0.0.1 --port 8000 > ../uvicorn.log 2>&1 &
+          echo "🚀 Backend started in background"
+
+      # -----------------------------------------------------------------------
+      # 2. Frontend Setup & Start
+      # -----------------------------------------------------------------------
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -162,45 +170,47 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Start backend (mock mode)
-        working-directory: backend
-        run: |
-          python -m uvicorn main:app --host 0.0.0.0 --port 8000 &
-          echo "⏳ Waiting for backend..."
-        env:
-          # タイムトラベルモードで起動 → 外部APIを呼ばずモックデータを返す
-          VIRTUAL_TIME: "2026-02-12T08:30:00+09:00"
-          FRONTEND_URL: "http://localhost:4173"
-          # ODPT_API_KEY は不要（モックモード）
-
-      - name: Build frontend & start preview server
+      - name: Start Frontend in Background
         working-directory: frontend
-        run: |
-          npm run build
-          npx vite preview --port 4173 &
-          echo "⏳ Waiting for frontend..."
         env:
           VITE_MAPBOX_ACCESS_TOKEN: "pk.ci_dummy_token_for_build_only"
+        run: |
+          npm run build
+          nohup npm run preview -- --host 127.0.0.1 --port 4173 > ../preview.log 2>&1 &
+          echo "🚀 Frontend started in background"
 
-      - name: Wait for servers
+      # -----------------------------------------------------------------------
+      # 3. Wait for Servers
+      # -----------------------------------------------------------------------
+      - name: Wait for Servers
         working-directory: frontend
         run: |
-          npx wait-on http://localhost:8000/api/health http://localhost:4173 \
+          npx wait-on http://127.0.0.1:8000/api/health http://127.0.0.1:4173 \
             --timeout 30000 \
             --interval 1000 \
             --verbose
-          echo "✅ Both servers are ready"
+        env:
+           # Explicitly use 127.0.0.1 to match start commands
+           CI: true
 
+      # -----------------------------------------------------------------------
+      # 4. Run Tests
+      # -----------------------------------------------------------------------
       - name: Run Playwright tests
         working-directory: frontend
         run: npx playwright test --reporter=list
 
-      - name: Upload test artifacts on failure
+      # -----------------------------------------------------------------------
+      # 5. Artifacts (Logs & Report)
+      # -----------------------------------------------------------------------
+      - name: Upload logs and report on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: e2e-logs-and-report
           path: |
+            uvicorn.log
+            preview.log
             frontend/test-results/
             frontend/playwright-report/
           retention-days: 7
