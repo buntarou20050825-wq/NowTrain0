@@ -165,9 +165,12 @@ export default function NavigationScreen({ itinerary, searchParams, onBack, onNe
   }, [myLineIds, myTrainIds]);
 
   useEffect(() => {
-    checkTrainStatus();
+    const t = setTimeout(checkTrainStatus, 0);
     const interval = setInterval(checkTrainStatus, 5000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(t);
+      clearInterval(interval);
+    };
   }, [checkTrainStatus]);
 
   // 時刻フォーマット

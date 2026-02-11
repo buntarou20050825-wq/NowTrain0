@@ -8,14 +8,7 @@ import "./MapView.css";
 
 const TRAIN_UPDATE_INTERVAL_MS = 2000;
 
-const formatTime = (ts) => {
-  if (!ts) return "--:--:--";
-  return new Date(ts * 1000).toLocaleTimeString("ja-JP", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-};
+
 
 // ========== 経路表示用ヘルパー関数 ==========
 
@@ -288,7 +281,7 @@ const safeFetchJson = async (url, { timeoutMs = 8000 } = {}) => {
     let json = null;
     try {
       json = text ? JSON.parse(text) : null;
-    } catch (e) {
+    } catch {
       throw new Error(`JSON_PARSE_FAILED status=${res.status} head=${text.slice(0, 180)}`);
     }
 
@@ -356,7 +349,7 @@ function MapView({
   const [searchQuery, setSearchQuery] = useState("");
   const searchQueryRef = useRef("");
 
-  const [displayMode, setDisplayMode] = useState("all");
+  const [displayMode] = useState("all");
   const displayModeRef = useRef("all");
 
   const [showRouteSearch, setShowRouteSearch] = useState(false);
@@ -372,7 +365,7 @@ function MapView({
   const myTrainLineIdsRef = useRef(propMyLineIds);
 
   // 選択された itinerary
-  const [selectedItinerary, setSelectedItinerary] = useState(propSelectedItinerary);
+  const [, setSelectedItinerary] = useState(propSelectedItinerary);
 
   // デバッグ対象列車
   const [debugTrainNumber, setDebugTrainNumber] = useState("");
@@ -1090,106 +1083,7 @@ function MapView({
     }
   };
 
-  const initLineData = async (lineId) => {
-    const map = mapRef.current;
-    if (!map) return;
 
-    ensureLineLayer(map);
-
-    const config = AVAILABLE_LINES.find((l) => l.id === lineId) || AVAILABLE_LINES[0];
-
-    if (map.getLayer("railway-line-layer")) {
-      map.setPaintProperty("railway-line-layer", "line-color", ["coalesce", ["get", "color"], config.color]);
-      map.setPaintProperty("railway-line-layer", "line-width", 6);
-    }
-
-    const lineSource = map.getSource("railway-line");
-    if (lineSource) {
-      lineSource.setData({ type: "FeatureCollection", features: [] });
-    }
-
-    try {
-      console.log(`[initLineData] Fetching static data for: ${lineId}`);
-
-      const shapesRes = await fetch(`/api/shapes?lineId=${lineId}`, { cache: "no-store" });
-      if (shapesRes.ok) {
-        const shapesData = await shapesRes.json();
-
-        console.log("[line switch]", {
-          selected: lineId,
-          propLineId: shapesData?.features?.[0]?.properties?.line_id,
-          hasSource: !!map.getSource("railway-line"),
-          hasLayer: !!map.getLayer("railway-line-layer"),
-        });
-
-        if (lineSource) {
-          lineSource.setData(shapesData);
-          map.triggerRepaint();
-
-          try {
-            const coords = shapesData?.features?.[0]?.geometry?.coordinates || [];
-            if (coords.length >= 2) {
-              let minLng = Infinity;
-              let minLat = Infinity;
-              let maxLng = -Infinity;
-              let maxLat = -Infinity;
-              for (const [lng, lat] of coords) {
-                if (lng < minLng) minLng = lng;
-                if (lat < minLat) minLat = lat;
-                if (lng > maxLng) maxLng = lng;
-                if (lat > maxLat) maxLat = lat;
-              }
-              map.fitBounds(
-                [
-                  [minLng, minLat],
-                  [maxLng, maxLat],
-                ],
-                { padding: 40, duration: 600 }
-              );
-            }
-          } catch (e) {
-            console.warn("[railway-line] fitBounds failed:", e);
-          }
-        }
-      } else {
-        console.error("Failed to fetch shapes:", shapesRes.status);
-      }
-
-      const stationsRes = await fetch(`/api/stations?lineId=${lineId}`, { cache: "no-store" });
-      if (stationsRes.ok) {
-        const stationsJson = await stationsRes.json();
-        console.log("[initLineData] stationsJson:", stationsJson);
-
-        const stationFeatures = (stationsJson.stations || []).map((st) => ({
-          type: "Feature",
-          geometry: {
-            type: "Point",
-            coordinates: [st.coord.lon, st.coord.lat],
-          },
-          properties: { name: st.name_ja },
-        }));
-
-        const stationSource = map.getSource("stations");
-        if (stationSource) {
-          stationSource.setData({
-            type: "FeatureCollection",
-            features: stationFeatures,
-          });
-        }
-      } else {
-        console.error("Failed to fetch stations:", stationsRes.status);
-      }
-    } catch (e) {
-      console.error("Static data load error:", e);
-    }
-
-    trainPositionsRef.current = {};
-
-    const trainsSrc = map.getSource("trains-source");
-    if (trainsSrc) {
-      trainsSrc.setData({ type: "FeatureCollection", features: [] });
-    }
-  };
 
   const initLineDataV2 = async (lineId) => {
     const map = mapRef.current;

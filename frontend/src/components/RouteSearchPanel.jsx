@@ -1,5 +1,5 @@
 // frontend/src/components/RouteSearchPanel.jsx
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import { searchStations, searchRoute } from "../api/serverData";
 import "./RouteSearchPanel.css";
 
@@ -296,8 +296,8 @@ export default function RouteSearchPanel({ onClose, onRouteSelect }) {
                               {leg.current_position.status === "running"
                                 ? "運行中"
                                 : leg.current_position.status === "stopped"
-                                ? "停車中"
-                                : ""}
+                                  ? "停車中"
+                                  : ""}
                             </span>
                           )}
                         </>
