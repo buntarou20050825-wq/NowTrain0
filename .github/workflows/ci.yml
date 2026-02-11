@@ -143,7 +143,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      - name: Start Backend in Background
+      - name: Start Backend & Verify
         working-directory: backend
         env:
           VIRTUAL_TIME: "2026-02-12T08:30:00+09:00"
@@ -151,6 +151,16 @@ jobs:
         run: |
           nohup python -m uvicorn main:app --host 127.0.0.1 --port 8000 > ../uvicorn.log 2>&1 &
           echo "🚀 Backend started in background"
+          sleep 5
+
+          echo "=== Uvicorn Log (Head) ==="
+          head -n 20 ../uvicorn.log
+
+          echo "=== Network Status (Port 8000) ==="
+          ss -tuln | grep 8000 || echo "Port 8000 not listening"
+
+          echo "=== Health Check ==="
+          curl -v http://127.0.0.1:8000/api/health
 
       # -----------------------------------------------------------------------
       # 2. Frontend Setup & Start
