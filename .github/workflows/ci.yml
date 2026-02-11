@@ -146,7 +146,7 @@ jobs:
       - name: Start Backend & Verify
         working-directory: backend
         env:
-          VIRTUAL_TIME: "2026-02-12T08:30:00+09:00"
+          VIRTUAL_TIME: "1"
           FRONTEND_URL: "http://127.0.0.1:4173"
           SKIP_DATA_LOAD: "1"
         run: |

@@ -112,6 +112,11 @@ def resolve_line_id(input_id: str) -> str:
 
 @app.on_event("startup")
 async def startup_event():
+    # CI/E2Eでは外部ファイル(mini-tokyo-3d/*.json)に依存しない
+    if os.getenv("SKIP_DATA_LOAD") == "1":
+        print("SKIP_DATA_LOAD=1: skipping data_cache.load_all()")
+        return
+
     data_cache.load_all()
     logger.info(
         "Data loaded: %d railways, %d stations",
