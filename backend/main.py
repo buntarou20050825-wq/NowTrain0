@@ -161,9 +161,9 @@ app.add_middleware(
 )
 
 
-@app.get("/api/health")
-async def health():
-    return {"status": "ok"}
+@app.api_route("/api/health", methods=["GET", "HEAD"])
+def health():
+    return {"ok": True}
 
 
 @app.get("/api/lines")
