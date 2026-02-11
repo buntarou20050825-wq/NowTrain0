@@ -64,9 +64,16 @@ jobs:
       - name: Test (pytest)
         run: |
           echo "::group::pytest"
-          pytest -v --tb=short --color=yes 2>&1
+          pytest -v --tb=short --color=yes 2>&1 | tee pytest.log
           echo "::endgroup::"
           echo "✅ Tests passed"
+
+      - name: Upload pytest logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-pytest-log
+          path: backend/pytest.log
 
   # =============================================================================
   # Job 2: Frontend — eslint + vitest + build
@@ -225,3 +232,23 @@ jobs:
             frontend/test-results/
             frontend/playwright-report/
           retention-days: 7
+
+      - name: Create & Upload Debug Pack
+        if: failure()
+        run: |
+          echo "=== CI DEBUG PACK ===" > ci_debug_pack.txt
+          echo "" >> ci_debug_pack.txt
+          
+          echo "--- backend/uvicorn.log ---" >> ci_debug_pack.txt
+          tail -n 200 uvicorn.log >> ci_debug_pack.txt || echo "Log not found" >> ci_debug_pack.txt
+          
+          echo "" >> ci_debug_pack.txt
+          echo "--- frontend/preview.log ---" >> ci_debug_pack.txt
+          tail -n 200 preview.log >> ci_debug_pack.txt || echo "Log not found" >> ci_debug_pack.txt
+
+      - name: Upload Debug Pack
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-debug-pack
+          path: ci_debug_pack.txt
