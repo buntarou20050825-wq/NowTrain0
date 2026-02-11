@@ -148,6 +148,7 @@ jobs:
         env:
           VIRTUAL_TIME: "2026-02-12T08:30:00+09:00"
           FRONTEND_URL: "http://127.0.0.1:4173"
+          SKIP_DATA_LOAD: "1"
         run: |
           nohup python -m uvicorn main:app --host 127.0.0.1 --port 8000 > ../uvicorn.log 2>&1 &
           echo "🚀 Backend started in background"
