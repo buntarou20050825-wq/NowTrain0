@@ -4,6 +4,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import { AVAILABLE_LINES } from "../constants/lines";
 import RouteSearchPanel from "./RouteSearchPanel";
 import { extractTrainNumber, isSameTrain } from "../utils/trainUtils";
+import "./MapView.css";
 
 const TRAIN_UPDATE_INTERVAL_MS = 2000;
 
@@ -336,7 +337,12 @@ const summarizeLineGeojson = (geo) => {
   };
 };
 
-function MapView() {
+function MapView({
+  navigationMode = false,
+  selectedItinerary: propSelectedItinerary = null,
+  myTrainIds: propMyTrainIds = [],
+  myLineIds: propMyLineIds = [],
+}) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
 
@@ -357,15 +363,16 @@ function MapView() {
 
   // ========== My Train 状態管理 ==========
   // My Train の trip_id リスト（複数路線の乗り換えに対応）
-  const [myTrainIds, setMyTrainIds] = useState([]);
-  const myTrainIdsRef = useRef([]);
+  // ナビゲーションモードではpropsから受け取る
+  const [myTrainIds, setMyTrainIds] = useState(propMyTrainIds);
+  const myTrainIdsRef = useRef(propMyTrainIds);
 
   // My Train の路線ID リスト（該当路線の電車のみ表示用）
-  const [myTrainLineIds, setMyTrainLineIds] = useState([]);
-  const myTrainLineIdsRef = useRef([]);
+  const [myTrainLineIds, setMyTrainLineIds] = useState(propMyLineIds);
+  const myTrainLineIdsRef = useRef(propMyLineIds);
 
   // 選択された itinerary
-  const [selectedItinerary, setSelectedItinerary] = useState(null);
+  const [selectedItinerary, setSelectedItinerary] = useState(propSelectedItinerary);
 
   // デバッグ対象列車
   const [debugTrainNumber, setDebugTrainNumber] = useState("");
@@ -383,6 +390,9 @@ function MapView() {
   // ========== アニメーション管理 ==========
   const animationRef = useRef(null);
   const trainPositionsRef = useRef({});
+
+  // My Train 用 HTML マーカー管理
+  const myTrainMarkersRef = useRef({});
 
   useEffect(() => {
     selectedLineRef.current = selectedLine;
@@ -405,6 +415,15 @@ function MapView() {
   useEffect(() => {
     myTrainLineIdsRef.current = myTrainLineIds;
   }, [myTrainLineIds]);
+
+  // ナビゲーションモード: propsからの値をstateに反映
+  useEffect(() => {
+    if (navigationMode) {
+      setMyTrainIds(propMyTrainIds);
+      setMyTrainLineIds(propMyLineIds);
+      setSelectedItinerary(propSelectedItinerary);
+    }
+  }, [navigationMode, propMyTrainIds, propMyLineIds, propSelectedItinerary]);
 
   // ========== 経路表示関数 ==========
 
@@ -668,6 +687,77 @@ function MapView() {
 
   // ========== 60fps アニメーションループ ==========
   useEffect(() => {
+    // My Train 用 HTML マーカーを作成/更新
+    const updateMyTrainMarker = (trainId, lon, lat, trainNumber, props = {}) => {
+      const map = mapRef.current;
+      if (!map) return;
+
+      const debugHtml = `
+        <div style="font-size:10px; text-align:left; margin-top:4px; line-height:1.2; border-top:1px solid rgba(255,255,255,0.3); padding-top:4px;">
+           Trip: ${props.tripId || '-'}<br/>
+           Src: ${props.source || '-'}<br/>
+           Prev: ${props.prevStation || '-'}<br/>
+           Next: ${props.nextStation || '-'}<br/>
+           Prog: ${props.progress != null ? props.progress.toFixed(3) : '-'}<br/>
+           Delay: ${Math.floor((props.delaySeconds || 0) / 60)}m
+        </div>
+      `;
+
+      let marker = myTrainMarkersRef.current[trainId];
+
+      if (!marker) {
+        // 新規マーカー作成
+        const el = document.createElement("div");
+        el.className = "my-train-marker-container";
+        // ツールチップにデバッグ情報を追加
+        el.innerHTML = `
+          <div class="my-train-marker"></div>
+          <div class="my-train-tooltip">
+            <strong>${trainNumber}</strong> (${props.status || '?'})
+            ${debugHtml}
+          </div>
+        `;
+
+        marker = new mapboxgl.Marker({
+          element: el,
+          anchor: "center",
+        })
+          .setLngLat([lon, lat])
+          .addTo(map);
+
+        myTrainMarkersRef.current[trainId] = marker;
+        console.log("[My Train Marker] Created HTML marker for:", trainNumber);
+      } else {
+        // 既存マーカーの位置・内容更新
+        const el = marker.getElement();
+        const tooltip = el.querySelector(".my-train-tooltip");
+        if (tooltip) {
+          tooltip.innerHTML = `<strong>${trainNumber}</strong> (${props.status || '?'})${debugHtml}`;
+        }
+        marker.setLngLat([lon, lat]);
+      }
+    };
+
+    // 不要なマーカーを削除
+    const removeStaleMarkers = (activeTrainIds) => {
+      const activeSet = new Set(activeTrainIds);
+      for (const trainId of Object.keys(myTrainMarkersRef.current)) {
+        if (!activeSet.has(trainId)) {
+          myTrainMarkersRef.current[trainId].remove();
+          delete myTrainMarkersRef.current[trainId];
+          console.log("[My Train Marker] Removed stale marker:", trainId);
+        }
+      }
+    };
+
+    // 全マーカー削除
+    const clearAllMarkers = () => {
+      for (const trainId of Object.keys(myTrainMarkersRef.current)) {
+        myTrainMarkersRef.current[trainId].remove();
+        delete myTrainMarkersRef.current[trainId];
+      }
+    };
+
     const animateTrains = () => {
       const map = mapRef.current;
       const src = map?.getSource("trains-source");
@@ -683,40 +773,62 @@ function MapView() {
       // My Train モード中かどうか
       const isMyTrainMode = myTrainIdsRef.current.length > 0;
 
-      const features = Object.keys(trainPositionsRef.current).map((key) => {
-        const train = trainPositionsRef.current[key];
-        const t = Math.min(1.0, (now - train.startTime) / duration);
+      // My Train モードでない場合、HTML マーカーをクリア
+      if (!isMyTrainMode && Object.keys(myTrainMarkersRef.current).length > 0) {
+        clearAllMarkers();
+      }
 
-        const lon = train.current[0] + (train.target[0] - train.current[0]) * t;
-        const lat = train.current[1] + (train.target[1] - train.current[1]) * t;
+      const activeMyTrainIds = [];
 
-        // デバッグ対象かどうかフラグを追加
-        const isDebugTarget = debugTrainNumberRef.current &&
-          key.toUpperCase() === debugTrainNumberRef.current.trim().toUpperCase();
+      const features = Object.keys(trainPositionsRef.current)
+        .map((key) => {
+          const train = trainPositionsRef.current[key];
+          const t = Math.min(1.0, (now - train.startTime) / duration);
 
-        // My Train 判定
-        // 正規化された列車番号で比較 (例: "406H" === "406H")
-        const trainNumber = train.properties?.trainNumber || key;
-        const isMyTrain = isMyTrainMode && myTrainIdsRef.current.some(
-          (savedTrainNumber) => isSameTrain(trainNumber, savedTrainNumber)
-        );
+          const lon = train.current[0] + (train.target[0] - train.current[0]) * t;
+          const lat = train.current[1] + (train.target[1] - train.current[1]) * t;
 
-        // My Train モード中の他の電車
-        const isOtherTrain = isMyTrainMode && !isMyTrain;
+          // デバッグ対象かどうかフラグを追加
+          const isDebugTarget = debugTrainNumberRef.current &&
+            key.toUpperCase() === debugTrainNumberRef.current.trim().toUpperCase();
 
-        return {
-          type: "Feature",
-          geometry: { type: "Point", coordinates: [lon, lat] },
-          properties: {
-            ...train.properties,
-            lon,
-            lat,
-            isDebugTarget,
-            isMyTrain,
-            isOtherTrain,
-          },
-        };
-      });
+          // My Train 判定
+          const trainNumber = train.properties?.trainNumber || key;
+          const isMyTrain = isMyTrainMode && myTrainIdsRef.current.some(
+            (savedTrainNumber) => isSameTrain(trainNumber, savedTrainNumber)
+          );
+
+          // My Train はHTMLマーカーとして表示
+          if (isMyTrain) {
+            activeMyTrainIds.push(key);
+            updateMyTrainMarker(key, lon, lat, trainNumber, train.properties);
+            // Symbol Layer からは除外（HTMLマーカーで表示するため）
+            return null;
+          }
+
+          // My Train モード中の他の電車は非表示にする
+          if (isMyTrainMode && !isMyTrain) {
+            return null;
+          }
+
+          return {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [lon, lat] },
+            properties: {
+              ...train.properties,
+              lon,
+              lat,
+              isDebugTarget,
+              isMyTrain: false,
+            },
+          };
+        })
+        .filter(Boolean);
+
+      // 不要なマーカーを削除
+      if (isMyTrainMode) {
+        removeStaleMarkers(activeMyTrainIds);
+      }
 
       src.setData({ type: "FeatureCollection", features });
       animationRef.current = requestAnimationFrame(animateTrains);
@@ -725,6 +837,8 @@ function MapView() {
     animationRef.current = requestAnimationFrame(animateTrains);
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      // クリーンアップ時にマーカーも削除
+      clearAllMarkers();
     };
   }, []);
 
@@ -909,10 +1023,18 @@ function MapView() {
         const props = e.features[0].properties;
 
         const html = `
-          <div style="font-size:12px; color:black;">
-            <strong>${props.trainNumber}</strong><br/>
-            ${props.isStopped ? "停車中" : "走行中"}<br/>
-            遅延: ${Math.floor(props.delaySeconds / 60)}分
+          <div style="font-size:12px; color:black; line-height:1.4;">
+            <strong>${props.trainNumber}</strong> <span style="font-size:10px; color:#555">(${props.status || '?'})</span><br/>
+            <div style="font-size:10px; color:#333; margin-top:4px;">
+              TripID: ${props.tripId}<br/>
+              Source: ${props.source || '?'}<br/>
+              Prev: ${props.prevStation || '-'}<br/>
+              Next: ${props.nextStation || '-'}<br/>
+              Prog: ${props.progress != null ? props.progress.toFixed(3) : '-'}<br/>
+            </div>
+            <div style="margin-top:4px; font-weight:bold; color:${props.delaySeconds > 60 ? '#d32f2f' : '#388e3c'}">
+              遅延: ${Math.floor(props.delaySeconds / 60)}分
+            </div>
           </div>
         `;
         popup.setLngLat(coordinates).setHTML(html).addTo(map);
@@ -923,16 +1045,30 @@ function MapView() {
         popup.remove();
       });
 
-      initLineDataV2(selectedLine);
+      // ナビゲーションモードではデフォルト路線を読み込まない
+      if (!navigationMode) {
+        initLineDataV2(selectedLine);
+      }
       setMapReady(true);
     });
-  }, []);
+  }, [navigationMode]);
 
   // ========== 路線切り替え時の処理 ==========
   useEffect(() => {
     if (!mapReady) return;
-    initLineDataV2(selectedLine);
-  }, [mapReady, selectedLine]);
+    // ナビゲーションモードでは路線データの初期化をスキップ（経路表示が優先）
+    if (!navigationMode) {
+      initLineDataV2(selectedLine);
+    }
+  }, [mapReady, selectedLine, navigationMode]);
+
+  // ========== ナビゲーションモード: 経路を自動表示 ==========
+  useEffect(() => {
+    if (!mapReady || !navigationMode || !propSelectedItinerary) return;
+
+    // 経路を地図に表示
+    displayRouteWithHighlight(propSelectedItinerary);
+  }, [mapReady, navigationMode, propSelectedItinerary]);
 
   const ensureLineLayer = (map) => {
     if (!map.getSource("railway-line")) {
@@ -1139,6 +1275,12 @@ function MapView() {
         ? myTrainLineIdsRef.current
         : [selectedLineRef.current];
 
+      // デバッグログ
+      if (myTrainIdsRef.current.length > 0) {
+        console.log("[MapView Polling] My Train mode active, fetching lines:", lineIdsToFetch);
+        console.log("[MapView Polling] Looking for trains:", myTrainIdsRef.current);
+      }
+
       try {
         const allPositions = [];
 
@@ -1148,7 +1290,9 @@ function MapView() {
             const res = await fetch(`/api/trains/${lineId}/positions/v4`);
             if (res.ok) {
               const json = await res.json();
-              return json.positions || [];
+              // デバッグ用に source を各 position に付与
+              const source = json.source;
+              return (json.positions || []).map(p => ({ ...p, source }));
             }
           } catch (err) {
             console.error(`[My Train] Failed to fetch positions for ${lineId}:`, err);
@@ -1179,6 +1323,12 @@ function MapView() {
 
           const props = {
             trainNumber: p.train_number,
+            tripId: p.trip_id,
+            source: p.source,
+            status: p.status,
+            prevStation: p.prev_station_id,
+            nextStation: p.next_station_id,
+            progress: p.progress,
             delaySeconds: p.delay || 0,
             isStopped: p.status === "stopped",
             dataQuality: "good",
@@ -1231,151 +1381,158 @@ function MapView() {
   }, []);
 
   return (
-    <div style={{ position: "relative", width: "100vw", height: "100vh" }}>
-      <div
-        style={{
-          position: "absolute",
-          top: 10,
-          left: 10,
-          zIndex: 1000,
-          background: "rgba(255, 255, 255, 0.95)",
-          padding: "15px",
-          borderRadius: "8px",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "10px",
-          width: "250px",
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: "16px", borderBottom: "2px solid #ddd", paddingBottom: "5px" }}>
-          NowTrain コントロール
-        </h2>
-
-        <div>
-          <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
-            ?? 路線選択:
-          </label>
-          <select
-            value={selectedLine}
-            onChange={(e) => setSelectedLine(e.target.value)}
-            style={{ width: "100%", padding: "6px", fontSize: "14px", borderRadius: "4px" }}
-          >
-            {AVAILABLE_LINES.map((line) => (
-              <option key={line.id} value={line.id}>
-                {line.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
-            ?? 列車番号検索:
-          </label>
-          <div style={{ display: "flex", gap: "5px" }}>
-            <input
-              type="text"
-              placeholder="例: 1234G"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
-              style={{ flex: 1, padding: "4px", borderRadius: "4px", border: "1px solid #ccc" }}
-            />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery("")} style={{ cursor: "pointer" }}>
-                ×
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
-            ?? 自動追跡:
-          </label>
-          <input
-            type="text"
-            placeholder="追跡する列車番号"
-            onChange={(e) => setTrackedTrain(e.target.value.toUpperCase() || null)}
-            style={{ width: "100%", padding: "4px", borderRadius: "4px", border: "1px solid #ccc" }}
-          />
-        </div>
-
-        <div>
-          <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px", color: "#9b59b6" }}>
-            🔍 デバッグ対象:
-          </label>
-          <div style={{ display: "flex", gap: "5px" }}>
-            <input
-              type="text"
-              placeholder="例: 1127K"
-              value={debugTrainNumber}
-              onChange={(e) => setDebugTrainNumber(e.target.value.toUpperCase())}
-              style={{ flex: 1, padding: "4px", borderRadius: "4px", border: "1px solid #9b59b6" }}
-            />
-            {debugTrainNumber && (
-              <button onClick={() => setDebugTrainNumber("")} style={{ cursor: "pointer" }}>
-                ×
-              </button>
-            )}
-          </div>
-        </div>
-
-        <button
-          onClick={() => setShowRouteSearch(!showRouteSearch)}
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      {/* コントロールパネル: ナビゲーションモードでは非表示 */}
+      {!navigationMode && (
+        <div
           style={{
-            width: "100%",
-            padding: "10px",
-            borderRadius: "6px",
-            border: "none",
-            background: showRouteSearch ? "#6c757d" : "#2d9cdb",
-            color: "#fff",
-            fontSize: "14px",
-            fontWeight: "bold",
-            cursor: "pointer",
-            marginTop: "5px",
+            position: "absolute",
+            top: 10,
+            left: 10,
+            zIndex: 1000,
+            background: "rgba(255, 255, 255, 0.95)",
+            padding: "15px",
+            borderRadius: "8px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+            width: "250px",
           }}
         >
-          {showRouteSearch ? "経路検索を閉じる" : "経路検索"}
-        </button>
-      </div>
+          <h2 style={{ margin: 0, fontSize: "16px", borderBottom: "2px solid #ddd", paddingBottom: "5px" }}>
+            NowTrain コントロール
+          </h2>
 
-      {showRouteSearch && (
+          <div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+              ?? 路線選択:
+            </label>
+            <select
+              value={selectedLine}
+              onChange={(e) => setSelectedLine(e.target.value)}
+              style={{ width: "100%", padding: "6px", fontSize: "14px", borderRadius: "4px" }}
+            >
+              {AVAILABLE_LINES.map((line) => (
+                <option key={line.id} value={line.id}>
+                  {line.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+              ?? 列車番号検索:
+            </label>
+            <div style={{ display: "flex", gap: "5px" }}>
+              <input
+                type="text"
+                placeholder="例: 1234G"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
+                style={{ flex: 1, padding: "4px", borderRadius: "4px", border: "1px solid #ccc" }}
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery("")} style={{ cursor: "pointer" }}>
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+              ?? 自動追跡:
+            </label>
+            <input
+              type="text"
+              placeholder="追跡する列車番号"
+              onChange={(e) => setTrackedTrain(e.target.value.toUpperCase() || null)}
+              style={{ width: "100%", padding: "4px", borderRadius: "4px", border: "1px solid #ccc" }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px", color: "#9b59b6" }}>
+              🔍 デバッグ対象:
+            </label>
+            <div style={{ display: "flex", gap: "5px" }}>
+              <input
+                type="text"
+                placeholder="例: 1127K"
+                value={debugTrainNumber}
+                onChange={(e) => setDebugTrainNumber(e.target.value.toUpperCase())}
+                style={{ flex: 1, padding: "4px", borderRadius: "4px", border: "1px solid #9b59b6" }}
+              />
+              {debugTrainNumber && (
+                <button onClick={() => setDebugTrainNumber("")} style={{ cursor: "pointer" }}>
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowRouteSearch(!showRouteSearch)}
+            style={{
+              width: "100%",
+              padding: "10px",
+              borderRadius: "6px",
+              border: "none",
+              background: showRouteSearch ? "#6c757d" : "#2d9cdb",
+              color: "#fff",
+              fontSize: "14px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              marginTop: "5px",
+            }}
+          >
+            {showRouteSearch ? "経路検索を閉じる" : "経路検索"}
+          </button>
+        </div>
+      )}
+
+      {/* 経路検索パネル: ナビゲーションモードでは非表示 */}
+      {!navigationMode && showRouteSearch && (
         <RouteSearchPanel
           onClose={handleCloseRouteSearch}
           onRouteSelect={handleRouteSelect}
         />
       )}
 
-      <div
-        style={{
-          position: "absolute",
-          right: 10,
-          bottom: 10,
-          zIndex: 2000,
-          background: "rgba(0,0,0,0.85)",
-          color: "#fff",
-          padding: "10px",
-          borderRadius: "8px",
-          fontSize: "11px",
-          width: "380px",
-          maxHeight: "400px",
-          overflowY: "auto",
-          whiteSpace: "pre-wrap",
-          fontFamily: "monospace",
-        }}
-      >
-        {debugTrainData ? (
-          <>
-            <div style={{ color: "#9b59b6", fontWeight: "bold", marginBottom: "5px" }}>
-              🔍 Debug: {debugTrainNumber}
-            </div>
-            {JSON.stringify(debugTrainData, null, 2)}
-          </>
-        ) : (
-          JSON.stringify(debugHud, null, 2)
-        )}
-      </div>
+      {/* デバッグパネル: ナビゲーションモードでは非表示 */}
+      {!navigationMode && (
+        <div
+          style={{
+            position: "absolute",
+            right: 10,
+            bottom: 10,
+            zIndex: 2000,
+            background: "rgba(0,0,0,0.85)",
+            color: "#fff",
+            padding: "10px",
+            borderRadius: "8px",
+            fontSize: "11px",
+            width: "380px",
+            maxHeight: "400px",
+            overflowY: "auto",
+            whiteSpace: "pre-wrap",
+            fontFamily: "monospace",
+          }}
+        >
+          {debugTrainData ? (
+            <>
+              <div style={{ color: "#9b59b6", fontWeight: "bold", marginBottom: "5px" }}>
+                🔍 Debug: {debugTrainNumber}
+              </div>
+              {JSON.stringify(debugTrainData, null, 2)}
+            </>
+          ) : (
+            JSON.stringify(debugHud, null, 2)
+          )}
+        </div>
+      )}
       <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );

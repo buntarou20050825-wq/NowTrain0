@@ -19,6 +19,21 @@ from sqlalchemy.orm import Session
 from data_cache import DataCache
 from config import get_line_config  # MS10: 路線設定のインポート
 from database import SessionLocal, StationRank
+from geometry import build_all_railways_cache, merge_sublines_v2, merge_sublines_fallback
+
+# Sentry エラートラッキング初期化 (環境変数が設定されている場合のみ)
+load_dotenv()  # 先に環境変数を読み込む
+_sentry_dsn = os.getenv("SENTRY_DSN")
+if _sentry_dsn:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        environment=os.getenv("ENVIRONMENT", "development"),
+        # パフォーマンストレースのサンプルレート（10%）
+        traces_sample_rate=0.1,
+        # プロファイリングのサンプルレート
+        profiles_sample_rate=0.1,
+    )
 
 # OTP クライアント（経路検索用）
 try:
@@ -46,6 +61,22 @@ JST = ZoneInfo("Asia/Tokyo")
 load_dotenv()
 
 app = FastAPI()
+
+# CORS: フロントエンド (Vite dev server) からの直接アクセスを許可
+from fastapi.middleware.cors import CORSMiddleware
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        frontend_url,
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent  # NowTrain-v2/
 DATA_DIR = BASE_DIR / "data"
@@ -87,6 +118,16 @@ async def startup_event():
     # MS1-TripUpdate: httpx.AsyncClient を作成
     app.state.http_client = httpx.AsyncClient()
     logger.info("httpx.AsyncClient initialized")
+
+    # タイムトラベル: VIRTUAL_TIME 環境変数でモック時刻を設定
+    from time_manager import time_mgr
+    virtual_time_str = os.getenv("VIRTUAL_TIME", "").strip()
+    if virtual_time_str:
+        try:
+            time_mgr.set_virtual_time(virtual_time_str)
+            logger.info("Time travel enabled: %s", time_mgr.get_status())
+        except ValueError as e:
+            logger.error("Invalid VIRTUAL_TIME env: %s", e)
 
 
 @app.on_event("shutdown")
@@ -296,282 +337,7 @@ async def update_station_rank(
     }}
 
 
-# ============================================================
-# 線路座標マージ関数 (MS12: sublinesマージロジック改善)
-# ============================================================
 
-def build_all_railways_cache(coordinates: Dict) -> Dict[str, List[List[float]]]:
-    """
-    全路線の座標をキャッシュに格納（Base路線含む）
-    type=subの参照解決に使用する。
-
-    Returns:
-        { "Base.TabataShinagawa": [[lon, lat], ...], "JR-East.Utsunomiya": [...], ... }
-    """
-    cache: Dict[str, List[List[float]]] = {}
-    for railway in coordinates.get("railways", []):
-        railway_id = railway.get("id", "")
-        sublines = railway.get("sublines", [])
-
-        # 全sublineの座標を結合
-        all_coords: List[List[float]] = []
-        for sub in sublines:
-            coords = sub.get("coords", [])
-            all_coords.extend(coords)
-
-        if all_coords:
-            cache[railway_id] = all_coords
-
-    return cache
-
-
-def resolve_subline_coords(
-    subline: Dict,
-    all_railways_cache: Dict[str, List[List[float]]]
-) -> List[List[float]]:
-    """
-    sublineの座標を解決する。
-    - type=main: subline自身のcoordsを返す
-    - type=sub: 参照先の路線の座標を返す（始点・終点で切り出し）
-
-    Args:
-        subline: coordinates.jsonのsublineオブジェクト
-        all_railways_cache: 全路線の座標キャッシュ
-
-    Returns:
-        解決された座標リスト
-    """
-    subtype = subline.get("type", "main")
-    coords = subline.get("coords", [])
-
-    # mainタイプまたは十分な座標がある場合はそのまま返す
-    if subtype == "main" or len(coords) > 10:
-        return coords
-
-    # subタイプ: 参照先の路線を取得
-    start_ref = subline.get("start", {})
-    end_ref = subline.get("end", {})
-    ref_railway = start_ref.get("railway") or end_ref.get("railway")
-
-    if not ref_railway or ref_railway not in all_railways_cache:
-        # 参照先が見つからない場合は元の座標を返す
-        return coords
-
-    # 参照先の座標を取得
-    ref_coords = all_railways_cache[ref_railway]
-
-    if len(coords) < 2 or len(ref_coords) < 2:
-        return coords
-
-    # sublineの始点・終点に最も近い参照座標のインデックスを見つける
-    start_point = coords[0]
-    end_point = coords[-1]
-
-    def find_nearest_idx(point, coord_list):
-        min_dist = float('inf')
-        min_idx = 0
-        for i, c in enumerate(coord_list):
-            dist = (c[0] - point[0])**2 + (c[1] - point[1])**2
-            if dist < min_dist:
-                min_dist = dist
-                min_idx = i
-        return min_idx
-
-    start_idx = find_nearest_idx(start_point, ref_coords)
-    end_idx = find_nearest_idx(end_point, ref_coords)
-
-    # 範囲を切り出し
-    if start_idx <= end_idx:
-        return ref_coords[start_idx:end_idx + 1]
-    else:
-        # 逆方向の場合は反転
-        return list(reversed(ref_coords[end_idx:start_idx + 1]))
-
-
-def merge_sublines_v2(
-    sublines: List[Dict],
-    is_loop: bool = False,
-    all_railways_cache: Optional[Dict[str, List[List[float]]]] = None
-) -> List[List[float]]:
-    """
-    sublinesを正しい順序でマージし、連続した座標配列を返す。
-    type=subのsublineは参照先の路線の座標を使用する。
-
-    Args:
-        sublines: coordinates.jsonのsublines配列
-        is_loop: 環状路線かどうか
-        all_railways_cache: 全路線の座標キャッシュ（参照解決用）
-
-    Returns:
-        マージされた座標のリスト [[lon, lat], ...]
-    """
-    if not sublines:
-        return []
-
-    if all_railways_cache is None:
-        all_railways_cache = {}
-
-    def coord_key(coord):
-        """座標を丸めてハッシュ可能なキーに変換"""
-        return (round(coord[0], 8), round(coord[1], 8))
-
-    # 1. 各sublineの座標を解決（type=subなら参照先を使用）
-    start_coords: Dict[tuple, List[int]] = {}  # coord_key -> [subline_index, ...]
-    end_coords: Dict[tuple, List[int]] = {}    # coord_key -> [subline_index, ...]
-
-    valid_sublines: List[tuple] = []
-    for i, sub in enumerate(sublines):
-        # 参照解決: type=subなら参照先の座標を使用
-        coords = resolve_subline_coords(sub, all_railways_cache)
-        if len(coords) >= 2:
-            valid_sublines.append((i, coords))
-
-            start_key = coord_key(coords[0])
-            end_key = coord_key(coords[-1])
-
-            start_coords.setdefault(start_key, []).append(i)
-            end_coords.setdefault(end_key, []).append(i)
-
-    if not valid_sublines:
-        return []
-
-    # 2. 接続グラフを構築（終点→始点）
-    graph: Dict[int, List[int]] = {i: [] for i, _ in valid_sublines}
-    in_degree: Dict[int, int] = {i: 0 for i, _ in valid_sublines}
-
-    for i, coords in valid_sublines:
-        end_key = coord_key(coords[-1])
-        if end_key in start_coords:
-            for j in start_coords[end_key]:
-                if i != j:
-                    graph[i].append(j)
-                    in_degree[j] += 1
-
-    # 3. 開始点を決定
-    start_idx = None
-    if is_loop:
-        # 環状路線: 最初のsublineから開始
-        start_idx = valid_sublines[0][0]
-    else:
-        # 非環状路線: 入次数0のsublineから開始
-        for i, _ in valid_sublines:
-            if in_degree[i] == 0:
-                start_idx = i
-                break
-        if start_idx is None:
-            start_idx = valid_sublines[0][0]
-
-    # 4. DFSで順序を決定
-    ordered_indices: List[int] = []
-    visited: set = set()
-
-    def dfs(idx: int):
-        if idx in visited:
-            return
-        visited.add(idx)
-        ordered_indices.append(idx)
-        for next_idx in graph[idx]:
-            if next_idx not in visited:
-                dfs(next_idx)
-
-    dfs(start_idx)
-
-    # 未訪問のsublineも追加（孤立したセグメント対応）
-    for i, _ in valid_sublines:
-        if i not in visited:
-            dfs(i)
-
-    # 5. 座標をマージ（重複除去）
-    merged_coords: List[List[float]] = []
-    idx_to_coords = {i: coords for i, coords in valid_sublines}
-
-    for i, idx in enumerate(ordered_indices):
-        coords = idx_to_coords.get(idx, [])
-        if not coords:
-            continue
-
-        if i == 0:
-            merged_coords.extend(coords)
-        else:
-            # 重複座標の除去
-            if merged_coords and coord_key(coords[0]) == coord_key(merged_coords[-1]):
-                merged_coords.extend(coords[1:])
-            else:
-                merged_coords.extend(coords)
-
-    return merged_coords
-
-
-def merge_sublines_fallback(sublines: List[Dict]) -> List[List[float]]:
-    """
-    フォールバック: 距離ベースの貪欲アルゴリズムでsublineを接続する。
-    グラフベースのマージが失敗した場合に使用。
-
-    Args:
-        sublines: coordinates.jsonのsublines配列
-
-    Returns:
-        マージされた座標のリスト [[lon, lat], ...]
-    """
-    if not sublines:
-        return []
-
-    def coord_key(coord):
-        return (round(coord[0], 8), round(coord[1], 8))
-
-    def dist_sq(c1, c2):
-        return (c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2
-
-    valid = [(i, sub.get("coords", [])) for i, sub in enumerate(sublines) if sub.get("coords")]
-    if not valid:
-        return []
-
-    used = [False] * len(valid)
-    result: List[List[float]] = []
-
-    # 最初のsublineから開始
-    used[0] = True
-    coords = valid[0][1]
-    result.extend(coords)
-    current_end = coords[-1]
-
-    for _ in range(len(valid) - 1):
-        best_idx = -1
-        best_dist = float('inf')
-        best_reversed = False
-
-        for i, (_, coords) in enumerate(valid):
-            if used[i] or not coords:
-                continue
-
-            d_start = dist_sq(coords[0], current_end)
-            if d_start < best_dist:
-                best_dist = d_start
-                best_idx = i
-                best_reversed = False
-
-            d_end = dist_sq(coords[-1], current_end)
-            if d_end < best_dist:
-                best_dist = d_end
-                best_idx = i
-                best_reversed = True
-
-        if best_idx < 0:
-            break
-
-        used[best_idx] = True
-        coords = valid[best_idx][1]
-        if best_reversed:
-            coords = list(reversed(coords))
-
-        if result and coord_key(coords[0]) == coord_key(result[-1]):
-            result.extend(coords[1:])
-        else:
-            result.extend(coords)
-
-        current_end = result[-1]
-
-    return result
 
 
 # ============================================================
@@ -999,37 +765,47 @@ async def get_yamanote_positions_v4():
     MS3/MS5: TripUpdate-only v4 API エンドポイント。
     
     TripUpdate から列車位置を計算し、線路形状に沿った座標付きで返す。
+    タイムトラベルモード時はモックデータを使用。
     """
     from gtfs_rt_tripupdate import fetch_trip_updates
     from train_position_v4 import compute_all_progress, calculate_coordinates
-    
-    api_key = os.getenv("ODPT_API_KEY", "").strip()
-    if not api_key:
-        return {
-            "source": "tripupdate_v4",
-            "status": "error",
-            "error": "ODPT_API_KEY not set",
-            "timestamp": int(datetime.now(JST).timestamp()),
-            "total_trains": 0,
-            "positions": [],
-        }
+    from time_manager import time_mgr
+    from mock_trip_generator import generate_mock_schedules
     
     try:
-        # 1. MS1: TripUpdate取得
-        client = app.state.http_client
-        schedules = await fetch_trip_updates(client, api_key, data_cache)
+        # タイムトラベルモード: モックデータを使用
+        if time_mgr.is_virtual():
+            schedules = generate_mock_schedules(
+                data_cache, time_mgr.now(),
+                target_route_id="JR-East.Yamanote",
+            )
+        else:
+            # 実データモード: ODPT API から取得
+            api_key = os.getenv("ODPT_API_KEY", "").strip()
+            if not api_key:
+                return {
+                    "source": "tripupdate_v4",
+                    "status": "error",
+                    "error": "ODPT_API_KEY not set",
+                    "timestamp": int(datetime.now(JST).timestamp()),
+                    "total_trains": 0,
+                    "positions": [],
+                }
+            client = app.state.http_client
+            schedules = await fetch_trip_updates(client, api_key, data_cache)
         
         if not schedules:
             return {
-                "source": "tripupdate_v4",
+                "source": "mock_v4" if time_mgr.is_virtual() else "tripupdate_v4",
                 "status": "no_data",
-                "timestamp": int(datetime.now(JST).timestamp()),
+                "timestamp": time_mgr.now() if time_mgr.is_virtual() else int(datetime.now(JST).timestamp()),
                 "total_trains": 0,
                 "positions": [],
             }
         
-        # 2. MS2: 進捗計算
-        results = compute_all_progress(schedules, data_cache=data_cache)
+        # 2. MS2: 進捗計算 (タイムトラベル時は仮想時刻を使う)
+        mock_now = time_mgr.now() if time_mgr.is_virtual() else None
+        results = compute_all_progress(schedules, now_ts=mock_now, data_cache=data_cache)
         
         # 3. レスポンス構築
         positions = []
@@ -1084,11 +860,12 @@ async def get_yamanote_positions_v4():
         positions.sort(key=lambda p: (p["direction"] or "", p["train_number"] or ""))
         
         return {
-            "source": "tripupdate_v4",
+            "source": "mock_v4" if time_mgr.is_virtual() else "tripupdate_v4",
             "status": "success",
-            "timestamp": now_ts or int(datetime.now(JST).timestamp()),
+            "timestamp": now_ts or (time_mgr.now() if time_mgr.is_virtual() else int(datetime.now(JST).timestamp())),
             "total_trains": len(positions),
             "positions": positions,
+            "time_travel": time_mgr.get_status() if time_mgr.is_virtual() else None,
         }
     
     except Exception as e:
@@ -1111,14 +888,16 @@ async def get_yamanote_positions_v4():
 async def get_train_positions_v4(line_id: str):
     """
     MS10: 汎用路線の列車位置 v4 API。
-    
+
     URLパスパラメータから路線を動的に切り替えて列車位置を取得する。
-    
+
     Args:
         line_id: 路線識別子 ("yamanote", "chuo_rapid", "keihin_tohoku", "sobu_local")
     """
     from gtfs_rt_tripupdate import fetch_trip_updates
     from train_position_v4 import compute_all_progress, calculate_coordinates
+    from time_manager import time_mgr
+    from mock_trip_generator import generate_mock_schedules
     
     # 1. 路線設定のロード
     line_config = get_line_config(line_id)
@@ -1132,43 +911,50 @@ async def get_train_positions_v4(line_id: str):
                    f"Available lines: {available} (51 lines total)"
         )
     
-    api_key = os.getenv("ODPT_API_KEY", "").strip()
-    if not api_key:
-        return {
-            "source": "tripupdate_v4",
-            "line_id": line_id,
-            "line_name": line_config.name,
-            "status": "error",
-            "error": "ODPT_API_KEY not set",
-            "timestamp": int(datetime.now(JST).timestamp()),
-            "total_trains": 0,
-            "positions": [],
-        }
-    
     try:
-        # 2. MS10: target_route_id を指定して TripUpdate 取得
-        client = app.state.http_client
-        schedules = await fetch_trip_updates(
-            client,
-            api_key,
-            data_cache,
-            target_route_id=line_config.gtfs_route_id,  # MS10: 動的に路線を指定
-            mt3d_prefix=line_config.mt3d_id  # MS11: 駅IDプレフィックス
-        )
+        # タイムトラベルモード: モックデータを使用
+        if time_mgr.is_virtual():
+            schedules = generate_mock_schedules(
+                data_cache, time_mgr.now(),
+                target_route_id=line_config.gtfs_route_id,
+            )
+        else:
+            # 実データモード: ODPT API から取得
+            api_key = os.getenv("ODPT_API_KEY", "").strip()
+            if not api_key:
+                return {
+                    "source": "tripupdate_v4",
+                    "line_id": line_id,
+                    "line_name": line_config.name,
+                    "status": "error",
+                    "error": "ODPT_API_KEY not set",
+                    "timestamp": int(datetime.now(JST).timestamp()),
+                    "total_trains": 0,
+                    "positions": [],
+                }
+            client = app.state.http_client
+            schedules = await fetch_trip_updates(
+                client,
+                api_key,
+                data_cache,
+                target_route_id=line_config.gtfs_route_id,
+                mt3d_prefix=line_config.mt3d_id
+            )
         
         if not schedules:
             return {
-                "source": "tripupdate_v4",
+                "source": "mock_v4" if time_mgr.is_virtual() else "tripupdate_v4",
                 "line_id": line_id,
                 "line_name": line_config.name,
                 "status": "no_data",
-                "timestamp": int(datetime.now(JST).timestamp()),
+                "timestamp": time_mgr.now() if time_mgr.is_virtual() else int(datetime.now(JST).timestamp()),
                 "total_trains": 0,
                 "positions": [],
             }
-        
-        # 3. MS2: 進捗計算
-        results = compute_all_progress(schedules, data_cache=data_cache)
+
+        # 3. MS2: 進捗計算 (タイムトラベル時は仮想時刻を使う)
+        mock_now = time_mgr.now() if time_mgr.is_virtual() else None
+        results = compute_all_progress(schedules, now_ts=mock_now, data_cache=data_cache)
         
         # 4. レスポンス構築
         positions = []
@@ -1232,13 +1018,14 @@ async def get_train_positions_v4(line_id: str):
         positions.sort(key=lambda p: (p["direction"] or "", p["train_number"] or ""))
         
         return {
-            "source": "tripupdate_v4",
+            "source": "mock_v4" if time_mgr.is_virtual() else "tripupdate_v4",
             "line_id": line_id,
             "line_name": line_config.name,
             "status": "success",
-            "timestamp": now_ts or int(datetime.now(JST).timestamp()),
+            "timestamp": now_ts or (time_mgr.now() if time_mgr.is_virtual() else int(datetime.now(JST).timestamp())),
             "total_trains": len(positions),
             "positions": positions,
+            "time_travel": time_mgr.get_status() if time_mgr.is_virtual() else None,
             # デバッグ情報
             "debug": {
                 "direction_stats": direction_stats,
@@ -1259,6 +1046,49 @@ async def get_train_positions_v4(line_id: str):
             "total_trains": 0,
             "positions": [],
         }
+
+
+# ============================================================================
+# タイムトラベル制御API
+# ============================================================================
+
+@app.post("/api/debug/time-travel")
+async def set_time_travel(body: dict):
+    """
+    仮想時刻を設定/解除する。
+
+    リクエスト例:
+        {"virtual_time": "2026-02-12T08:30:00+09:00"}  → 仮想時刻に設定
+        {"virtual_time": null}                           → リアルタイムに戻す
+    """
+    from time_manager import time_mgr
+
+    virtual_time = body.get("virtual_time")
+
+    if virtual_time is None:
+        time_mgr.reset()
+        return {
+            "status": "ok",
+            "message": "Reset to real time",
+            **time_mgr.get_status(),
+        }
+    else:
+        try:
+            time_mgr.set_virtual_time(str(virtual_time))
+            return {
+                "status": "ok",
+                "message": f"Virtual time set to {virtual_time}",
+                **time_mgr.get_status(),
+            }
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/debug/time-status")
+async def get_time_status():
+    """現在の時間モード（リアルタイム/仮想）を返す"""
+    from time_manager import time_mgr
+    return time_mgr.get_status()
 
 
 # ============================================================================
@@ -1467,6 +1297,13 @@ async def route_search(
 
         # 2. OTP レスポンスをパース
         itineraries = parse_otp_response(otp_response)
+
+        # 2.5. 徒歩のみの経路を除外
+        transit_modes_check = {"RAIL", "BUS", "SUBWAY", "TRAM", "FERRY", "CABLE_CAR", "GONDOLA", "FUNICULAR", "TRANSIT"}
+        itineraries = [
+            itin for itin in itineraries
+            if any(leg.get("mode") in transit_modes_check for leg in itin.get("legs", []))
+        ]
 
         if not itineraries:
             return {

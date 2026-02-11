@@ -52,3 +52,7 @@ Thumbs.db
 
 # Huge data files
 otp_data/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/

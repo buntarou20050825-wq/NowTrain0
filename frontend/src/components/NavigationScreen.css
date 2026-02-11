@@ -1,0 +1,411 @@
+/* NavigationScreen - Apple-style design with bottom sheet */
+
+.navigation-screen {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  font-family: var(--font-family);
+}
+
+/* Map Container */
+.navigation-map {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+}
+
+/* Floating Controls */
+.floating-controls {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 1000;
+  display: flex;
+  justify-content: space-between;
+}
+
+.floating-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: none;
+  background: var(--bg-blur);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: var(--radius-md);
+  font-size: var(--text-md);
+  font-weight: 600;
+  font-family: var(--font-family);
+  cursor: pointer;
+  box-shadow: var(--shadow-float);
+  transition: all var(--transition-fast);
+}
+
+.floating-button.back {
+  color: var(--primary);
+}
+
+.floating-button.new-search {
+  color: var(--text-white);
+  background: var(--primary);
+}
+
+.floating-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+.floating-button:active {
+  transform: translateY(0);
+}
+
+/* Bottom Sheet */
+.bottom-sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: var(--bg-card);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1);
+  transition: max-height var(--transition-normal);
+  max-height: 220px;
+  overflow: hidden;
+}
+
+.bottom-sheet.expanded {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+/* Sheet Handle */
+.sheet-handle {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 8px;
+  cursor: pointer;
+}
+
+.handle-bar {
+  width: 36px;
+  height: 5px;
+  background: var(--border-divider);
+  border-radius: var(--radius-full);
+}
+
+/* Sheet Header */
+.sheet-header {
+  padding: 0 20px 16px;
+  cursor: pointer;
+}
+
+.sheet-route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sheet-from,
+.sheet-to {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sheet-arrow {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.sheet-times {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sheet-time {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sheet-time-arrow {
+  font-size: var(--text-sm);
+  color: var(--border-divider);
+  letter-spacing: -1px;
+}
+
+.sheet-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.meta-divider {
+  color: var(--border-divider);
+}
+
+/* Train Status Summary */
+.sheet-train-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.train-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.train-chip.running {
+  background: rgba(52, 199, 89, 0.1);
+}
+
+.train-dot {
+  font-size: 8px;
+  color: var(--text-secondary);
+}
+
+.train-chip.running .train-dot {
+  color: var(--success);
+}
+
+.train-id {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.train-label {
+  color: var(--text-secondary);
+}
+
+.train-chip.running .train-label {
+  color: var(--success);
+}
+
+/* Sheet Content (Expanded) */
+.sheet-content {
+  padding: 0 20px 24px;
+  animation: expand-in 200ms ease-out;
+}
+
+@keyframes expand-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sheet-divider {
+  height: 1px;
+  background: var(--border-divider);
+  margin-bottom: 16px;
+}
+
+/* Sheet Timeline */
+.sheet-timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline-leg {
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline-station {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.timeline-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  border: 3px solid var(--primary);
+  background: var(--bg-card);
+  flex-shrink: 0;
+}
+
+.timeline-dot.filled {
+  border: none;
+}
+
+.timeline-station-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.timeline-time {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 50px;
+}
+
+.timeline-name {
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.timeline-line {
+  margin-left: 5px;
+  padding: 10px 0 10px 20px;
+  border-left: 2px solid var(--primary);
+}
+
+.timeline-transit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.timeline-route {
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.timeline-walk {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Train Status in Timeline */
+.timeline-train-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  width: fit-content;
+}
+
+.timeline-train-status.running {
+  background: rgba(52, 199, 89, 0.1);
+}
+
+.status-dot {
+  font-size: 8px;
+  color: var(--text-secondary);
+}
+
+.timeline-train-status.running .status-dot {
+  color: var(--success);
+}
+
+.status-id {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.status-label {
+  color: var(--text-secondary);
+}
+
+.timeline-train-status.running .status-label {
+  color: var(--success);
+}
+
+/* Delay Badge */
+.delay-badge {
+  color: #e53935;
+  font-weight: 600;
+  font-size: var(--text-xs);
+  margin-left: 2px;
+}
+
+/* Delay Severity Styles */
+.timeline-train-status.moderate-delay {
+  background: #fff3e0;
+  border: 1px solid #ff9800;
+}
+
+.timeline-train-status.severe-delay {
+  background: #ffebee;
+  border: 1px solid #e53935;
+}
+
+.timeline-train-status.moderate-delay .status-label,
+.timeline-train-status.severe-delay .status-label {
+  color: var(--text-primary);
+}
+
+/* Scrollbar */
+.bottom-sheet.expanded::-webkit-scrollbar {
+  width: 6px;
+}
+
+.bottom-sheet.expanded::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.bottom-sheet.expanded::-webkit-scrollbar-thumb {
+  background: var(--border-divider);
+  border-radius: 3px;
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .floating-controls {
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .floating-button {
+    padding: 8px 14px;
+    font-size: var(--text-sm);
+  }
+
+  .bottom-sheet {
+    max-height: 200px;
+  }
+
+  .bottom-sheet.expanded {
+    max-height: 60vh;
+  }
+
+  .sheet-header {
+    padding: 0 16px 14px;
+  }
+
+  .sheet-from,
+  .sheet-to {
+    font-size: var(--text-md);
+  }
+
+  .sheet-time {
+    font-size: 22px;
+  }
+
+  .sheet-content {
+    padding: 0 16px 20px;
+  }
+}

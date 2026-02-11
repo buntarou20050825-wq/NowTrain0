@@ -267,7 +267,13 @@ export default function RouteSearchPanel({ onClose, onRouteSelect }) {
               </div>
               <div className="itinerary-legs">
                 {itinerary.legs
-                  .filter((leg) => leg.mode !== "WALK" || leg.duration_minutes > 2)
+                  .filter((leg, idx, arr) => {
+                    // 最初/最後のWALKは非表示、途中のWALKは乗換として表示
+                    if (leg.mode !== "WALK") return true;
+                    const isFirstLeg = idx === 0;
+                    const isLastLeg = idx === arr.length - 1;
+                    return !isFirstLeg && !isLastLeg && leg.duration_minutes > 2;
+                  })
                   .map((leg, legIdx) => (
                     <div key={legIdx} className={`leg-item leg-${leg.mode.toLowerCase()}`}>
                       {leg.mode === "WALK" ? (

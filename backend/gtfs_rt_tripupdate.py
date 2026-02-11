@@ -210,29 +210,19 @@ async def fetch_trip_updates(
                     station_id = mapped_station
                     resolved = True
             
-            # 優先順位3 (MS11): mt3d_prefix から railways.json の駅リストを使用
-            # GTFS-RT に stop_id が含まれない場合のフォールバック
+            # 優先順位3: stop_sequence による駅解決は無効化
+            # 注意: stop_sequence は列車の旅程内での相対的な順序であり、
+            # 路線の絶対的な駅インデックスではない。
+            # 例: 橋本発の列車は stop_seq=1 が橋本だが、
+            # stations_list[0] は東神奈川になり、誤った座標を返してしまう。
+            # この問題を避けるため、stop_sequence によるフォールバックは使用しない。
             if not resolved and mt3d_prefix:
-                # data_cache.railways から該当路線の駅リストを取得
-                railway = next((r for r in data_cache.railways if r.get("id") == mt3d_prefix), None)
-                if railway:
-                    stations_list = railway.get("stations", [])
-                    # stop_sequence は 1-based と仮定
-                    if 1 <= stop_seq <= len(stations_list):
-                        # MS12: 方向に応じてインデックスを決定
-                        # ascending = Outbound (下り) → 順方向インデックス
-                        # descending = Inbound (上り) → 逆方向インデックス
-                        descending_direction = railway.get("descending", "Inbound")
-                        if direction == descending_direction:
-                            # Inbound: 逆順インデックス (stop_seq 1 → 最後の駅)
-                            idx = len(stations_list) - stop_seq
-                            station_id = stations_list[idx]
-                            if len(results) < 3 and stop_seq <= 3:
-                                logger.info(f"[MS12] Inbound seq {stop_seq} -> idx {idx} -> {station_id}")
-                        else:
-                            # Outbound: 順方向インデックス (stop_seq 1 → 最初の駅)
-                            station_id = stations_list[stop_seq - 1]
-                        resolved = True
+                # raw_stop_id が無い場合は解決不可
+                if len(results) < 3 and stop_seq <= 3:
+                    logger.warning(
+                        f"[STATION-RESOLVE] Cannot resolve station: trip={trip_id[:15]}, "
+                        f"seq={stop_seq}, raw_stop_id={raw_stop_id}, mt3d_prefix={mt3d_prefix}"
+                    )
             
             # 到着・発車時刻の抽出
             arrival_time: Optional[int] = None
@@ -296,5 +286,5 @@ async def fetch_trip_updates(
         f"Parsed {len(results)} TripUpdates for {target_route_id} "
         f"(feed had {len(feed.entity)} entities)"
     )
-    
+
     return results

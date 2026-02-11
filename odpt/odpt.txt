@@ -1,0 +1,30 @@
+Access_Token_for_Challenge2025=w16gqrvl2r9ipafyt8pg1f8z79cc7n0qiqixbze9z2d6kzbp1nooh17a5uzl1ldv
+
+
+
+各エンドポイント
+
+JR東日本 列車ロケーション情報
+https://api-challenge.odpt.org/api/v4/odpt:Train?odpt:operator=odpt.Operator:JR-East&acl:consumerKey=[Access_Token_for_Challenge2025]
+
+
+JR東日本 路線系統情報
+https://api-challenge.odpt.org/api/v4/odpt:Railway?odpt:operator=odpt.Operator:JR-East&acl:consumerKey=[Access_Token_for_Challenge2025]
+
+JR東日本 駅時刻表
+https://api-challenge.odpt.org/api/v4/odpt:StationTimetable?odpt:operator=odpt.Operator:JR-East&acl:consumerKey=[Access_Token_for_Challenge2025]
+
+JR東日本 列車時刻表
+https://api-challenge.odpt.org/api/v4/odpt:TrainTimetable?odpt:operator=odpt.Operator:JR-East&acl:consumerKey=[Access_Token_for_Challenge2025]
+
+JR東日本 乗降者数情報
+https://api-challenge.odpt.org/api/v4/odpt:PassengerSurvey?odpt:operator=odpt.Operator:JR-East&acl:consumerKey=[Access_Token_for_Challenge2025]
+
+駅情報
+https://api-challenge.odpt.org/api/v4/odpt:Station?odpt:operator=odpt.Operator:JR-East&acl:consumerKey=[Access_Token_for_Challenge2025]
+
+JR東日本 鉄道関連情報
+https://api-challenge.odpt.org/api/v4/files/JR-East/data/JR-East-Train-GTFS.zip?acl:consumerKey=[Access_Token_for_Challenge2025]
+
+JR東日本 鉄道関連リアルタイム情報
+https://api-challenge.odpt.org/api/v4/gtfs/realtime/jreast_odpt_train_vehicle?acl:consumerKey=[Access_Token_for_Challenge2025]

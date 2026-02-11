@@ -1,0 +1,8 @@
+/* frontend/src/components/MainApp.css */
+
+.main-app {
+  width: 100vw;
+  height: 100vh;
+  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ed 100%);
+}

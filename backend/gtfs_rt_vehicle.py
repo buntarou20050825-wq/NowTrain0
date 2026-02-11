@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 GTFS-RT VehiclePosition から山手線の列車位置を取得
 """

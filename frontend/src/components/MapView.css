@@ -1,0 +1,88 @@
+/* MapView - My Train マーカースタイル */
+
+/* マーカーのコンテナ（位置決め用） */
+.my-train-marker-container {
+    width: 0;
+    height: 0;
+    position: relative;
+}
+
+/* マーカー本体 */
+.my-train-marker {
+    /* サイズ定義 */
+    width: 24px;
+    height: 24px;
+
+    /* 色と形 */
+    background-color: #FF4500;
+    border: 3px solid #FFFFFF;
+    border-radius: 50%;
+
+    /* 配置調整 */
+    position: absolute;
+    top: -12px;
+    left: -12px;
+    z-index: 10;
+
+    /* 常時発光エフェクト */
+    box-shadow: 0 0 10px 2px rgba(255, 69, 0, 0.6);
+
+    /* ポインターイベントを有効化 */
+    cursor: pointer;
+}
+
+/* 脈動アニメーション用の波紋レイヤー */
+.my-train-marker::after {
+    content: '';
+    display: block;
+    position: absolute;
+    top: -3px;
+    left: -3px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid #FF4500;
+    opacity: 0;
+    animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+/* 脈動のアニメーション定義 */
+@keyframes pulse-ring {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    100% {
+        transform: scale(2.5);
+        opacity: 0;
+    }
+}
+
+/* マーカーホバー時のエフェクト */
+.my-train-marker:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 15px 4px rgba(255, 69, 0, 0.8);
+}
+
+/* マーカーのツールチップ */
+.my-train-tooltip {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.85);
+    color: white;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 100;
+}
+
+.my-train-marker-container:hover .my-train-tooltip {
+    opacity: 1;
+}

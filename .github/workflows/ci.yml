@@ -1,0 +1,206 @@
+# =============================================================================
+# NowTrain CI Pipeline
+# =============================================================================
+# Backend (Python/FastAPI) と Frontend (React/Vite) の品質を自動検証する。
+# E2E テストは Playwright + モックバックエンドで外部API依存なし。
+#
+# トリガー: push (main/develop) + Pull Request
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# 同一PRの連続pushでは古いジョブをキャンセルして高速化
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# =============================================================================
+# Job 1: Backend — ruff lint + pytest
+# =============================================================================
+jobs:
+  backend:
+    name: "🐍 Backend (lint + test)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('backend/requirements*.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          echo "✅ Dependencies installed"
+
+      - name: Lint (ruff)
+        run: |
+          echo "::group::ruff check"
+          ruff check . --output-format=github
+          echo "::endgroup::"
+          echo "✅ Lint passed"
+
+      - name: Test (pytest)
+        run: |
+          echo "::group::pytest"
+          pytest -v --tb=short --color=yes 2>&1
+          echo "::endgroup::"
+          echo "✅ Tests passed"
+
+  # =============================================================================
+  # Job 2: Frontend — eslint + vitest + build
+  # =============================================================================
+  frontend:
+    name: "⚛️ Frontend (lint + test + build)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          echo "✅ npm ci completed"
+
+      - name: Lint (eslint)
+        run: |
+          echo "::group::eslint"
+          npm run lint
+          echo "::endgroup::"
+          echo "✅ Lint passed"
+
+      - name: Unit Test (vitest)
+        run: |
+          echo "::group::vitest"
+          npm run test
+          echo "::endgroup::"
+          echo "✅ Unit tests passed"
+
+      - name: Build
+        run: |
+          npm run build
+          echo "✅ Build succeeded"
+        env:
+          # ビルド時に必要な環境変数（CI用ダミー値）
+          VITE_MAPBOX_ACCESS_TOKEN: "pk.ci_dummy_token_for_build_only"
+
+  # =============================================================================
+  # Job 3: E2E — Playwright (mock backend, 外部API依存なし)
+  # =============================================================================
+  e2e:
+    name: "🎭 E2E (Playwright)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('backend/requirements*.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Start backend (mock mode)
+        working-directory: backend
+        run: |
+          python -m uvicorn main:app --host 0.0.0.0 --port 8000 &
+          echo "⏳ Waiting for backend..."
+        env:
+          # タイムトラベルモードで起動 → 外部APIを呼ばずモックデータを返す
+          VIRTUAL_TIME: "2026-02-12T08:30:00+09:00"
+          FRONTEND_URL: "http://localhost:4173"
+          # ODPT_API_KEY は不要（モックモード）
+
+      - name: Build frontend & start preview server
+        working-directory: frontend
+        run: |
+          npm run build
+          npx vite preview --port 4173 &
+          echo "⏳ Waiting for frontend..."
+        env:
+          VITE_MAPBOX_ACCESS_TOKEN: "pk.ci_dummy_token_for_build_only"
+
+      - name: Wait for servers
+        working-directory: frontend
+        run: |
+          npx wait-on http://localhost:8000/api/health http://localhost:4173 \
+            --timeout 30000 \
+            --interval 1000 \
+            --verbose
+          echo "✅ Both servers are ready"
+
+      - name: Run Playwright tests
+        working-directory: frontend
+        run: npx playwright test --reporter=list
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/test-results/
+            frontend/playwright-report/
+          retention-days: 7

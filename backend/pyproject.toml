@@ -1,0 +1,26 @@
+# =============================================================================
+# Backend ツール設定 (ruff / pytest)
+# =============================================================================
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+# 初期段階は緩めに — E (pycodestyle errors), F (pyflakes), I (isort) のみ
+select = ["E", "F", "I"]
+# 未使用インポートは警告にとどめる (既存コードとの互換)
+ignore = ["E501", "F401"]
+
+[tool.ruff.lint.per-file-ignores]
+# テストファイルは assert 使用・ワイルドカードインポートを許可
+"tests/**" = ["F811", "E712"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+# -v はデフォルトで有効に
+addopts = "-v --tb=short"
+# pytest-asyncio のモード設定
+asyncio_mode = "auto"

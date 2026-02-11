@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, TYPE_CHECKING
 from station_ranks import get_station_dwell_time
+from geometry import build_all_railways_cache, merge_sublines_v2
 
 from gtfs_rt_tripupdate import TrainSchedule, RealtimeStationSchedule
 
@@ -251,7 +252,7 @@ def compute_progress_for_train(
                 status="stopped",
                 feed_timestamp=schedule.feed_timestamp,
                 segment_count=len(seqs) - 1,
-                delay=stu.delay,  # MS6: 停車中はその駅の遅延
+                delay=stu.delay,
             )
     
     # 4. 区間判定（走行中）
@@ -284,7 +285,7 @@ def compute_progress_for_train(
             elapsed = now_ts - t0
             duration = t1 - t0
             eased_progress = calculate_physics_progress(elapsed, duration)
-            
+
             return SegmentProgress(
                 trip_id=trip_id,
                 train_number=train_number,
@@ -300,7 +301,7 @@ def compute_progress_for_train(
                 status="running",
                 feed_timestamp=schedule.feed_timestamp,
                 segment_count=len(seqs) - 1,
-                delay=next_stu.delay,  # MS6: 走行中は次駅到着遅延
+                delay=next_stu.delay,
             )
     
     # 5. 区間も停車も見つからない → unknown
@@ -429,32 +430,29 @@ def get_merged_coords(cache, line_id) -> List[tuple[float, float]]:
     if line_id in _SHAPE_CACHE:
         return _SHAPE_CACHE[line_id]
     
-    merged: List[List[float]] = []
-    # coordinates.json content is in cache.coordinates["railways"]
+    # 1. Find the railway entry
     railways = cache.coordinates.get("railways", [])
-    for r in railways:
-        if r.get("id") == line_id:
-            previous_end = None
-            for sl in r.get("sublines", []):
-                coords = sl.get("coords") or []
-                if not coords:
-                    continue
+    entry = next((r for r in railways if r.get("id") == line_id), None)
+    
+    if not entry:
+        return []
 
-                # Match /api/shapes merge order to keep sublines continuous.
-                if previous_end is not None:
-                    first = coords[0]
-                    last = coords[-1]
-                    dist_to_first = (first[0] - previous_end[0]) ** 2 + (first[1] - previous_end[1]) ** 2
-                    dist_to_last = (last[0] - previous_end[0]) ** 2 + (last[1] - previous_end[1]) ** 2
-                    if dist_to_last < dist_to_first:
-                        coords = list(reversed(coords))
+    # 2. Build cache for reference resolution
+    # Note: For performance, we could cache this globally, but per-line is fine due to _SHAPE_CACHE.
+    all_railways_cache = build_all_railways_cache(cache.coordinates)
 
-                merged.extend(coords)
-                previous_end = coords[-1]
-            break
+    # 3. Specific loop flag
+    is_loop = entry.get("loop", False)
+    
+    # 4. robust merge
+    merged_list = merge_sublines_v2(
+        entry.get("sublines", []),
+        is_loop=is_loop,
+        all_railways_cache=all_railways_cache
+    )
             
     # Convert to list of tuples (lon, lat)
-    merged_tuples = [(c[0], c[1]) for c in merged]
+    merged_tuples = [(c[0], c[1]) for c in merged_list]
     
     if merged_tuples:
         _SHAPE_CACHE[line_id] = merged_tuples
