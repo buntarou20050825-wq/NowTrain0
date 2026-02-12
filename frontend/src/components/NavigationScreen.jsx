@@ -2,7 +2,7 @@
 import { useMemo, useEffect, useState, useCallback } from "react";
 import MapView from "./MapView";
 import { extractTrainNumber, isSameTrain } from "../utils/trainUtils";
-import { AVAILABLE_LINES } from "../constants/lines";
+import { AVAILABLE_LINES, OTP_NUMERIC_ROUTE_MAP } from "../constants/lines";
 import "./NavigationScreen.css";
 
 // 英語路線名 → 内部ID マッピング
@@ -58,6 +58,9 @@ const getInternalLineId = (route) => {
         const line = AVAILABLE_LINES.find((l) => l.railwayId === routeIdPart);
         if (line) return line.id;
       }
+      // 数字ID形式 ("21" → "yokohama")
+      const numericMatch = OTP_NUMERIC_ROUTE_MAP[routeIdPart];
+      if (numericMatch) return numericMatch;
     }
   }
 
@@ -146,6 +149,7 @@ export default function NavigationScreen({ itinerary, searchParams, onBack, onNe
                 running: true,
                 status: found.status,
                 delay: found.delay || 0,
+                isStarting: found.is_starting_station || false,
               };
             }
           }
@@ -272,11 +276,12 @@ export default function NavigationScreen({ itinerary, searchParams, onBack, onNe
               {myTrainIds.map((trainId) => {
                 const status = runningTrains[trainId];
                 const isRunning = status?.running;
+                const isStarting = status?.isStarting;
                 return (
-                  <div key={trainId} className={`train-chip ${isRunning ? "running" : ""}`}>
+                  <div key={trainId} className={`train-chip ${isRunning ? "running" : ""} ${isStarting ? "starting" : ""}`}>
                     <span className="train-dot">{isRunning ? "●" : "○"}</span>
                     <span className="train-id">{trainId}</span>
-                    <span className="train-label">{isRunning ? "運行中" : "未検出"}</span>
+                    <span className="train-label">{isStarting ? "当駅始発" : (isRunning ? "運行中" : "未検出")}</span>
                   </div>
                 );
               })}
@@ -345,11 +350,11 @@ export default function NavigationScreen({ itinerary, searchParams, onBack, onNe
                               {leg.headsign ? ` (${leg.headsign})` : ""}
                             </span>
                             {normalizedId && (
-                              <div className={`timeline-train-status ${isRunning ? "running" : ""} ${delayMin >= 10 ? "severe-delay" : delayMin >= 5 ? "moderate-delay" : ""}`}>
+                              <div className={`timeline-train-status ${isRunning ? "running" : ""} ${trainStatus?.isStarting ? "starting" : ""} ${delayMin >= 10 ? "severe-delay" : delayMin >= 5 ? "moderate-delay" : ""}`}>
                                 <span className="status-dot">{isRunning ? "●" : "○"}</span>
                                 <span className="status-id">{normalizedId}</span>
                                 <span className="status-label">
-                                  {isRunning ? "運行中" : "未検出"}
+                                  {trainStatus?.isStarting ? "当駅始発" : (isRunning ? "運行中" : "未検出")}
                                 </span>
                                 {isRunning && delayMin > 0 && (
                                   <span className="delay-badge">+{delayMin}分遅れ</span>

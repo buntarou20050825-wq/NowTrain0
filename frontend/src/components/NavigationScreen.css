@@ -200,6 +200,16 @@
   color: var(--success);
 }
 
+.train-chip.starting {
+  background: rgba(0, 122, 255, 0.1);
+  border: 1px solid rgba(0, 122, 255, 0.2);
+}
+
+.train-chip.starting .train-label {
+  color: #007AFF;
+  font-weight: 600;
+}
+
 /* Sheet Content (Expanded) */
 .sheet-content {
   padding: 0 20px 24px;
@@ -210,6 +220,7 @@
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -306,6 +317,17 @@
 
 .timeline-train-status.running {
   background: rgba(52, 199, 89, 0.1);
+}
+
+.timeline-train-status.starting {
+  background: rgba(0, 122, 255, 0.1);
+  /* Blue background */
+  border: 1px solid rgba(0, 122, 255, 0.3);
+}
+
+.timeline-train-status.starting .status-label {
+  color: #007AFF;
+  font-weight: 600;
 }
 
 .status-dot {

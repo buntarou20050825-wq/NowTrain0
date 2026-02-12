@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { AVAILABLE_LINES } from "../constants/lines";
+import { AVAILABLE_LINES, OTP_NUMERIC_ROUTE_MAP } from "../constants/lines";
 import RouteSearchPanel from "./RouteSearchPanel";
 import { extractTrainNumber, isSameTrain } from "../utils/trainUtils";
 import "./MapView.css";
@@ -47,61 +47,6 @@ const createLineFeature = (coordinates) => ({
   },
   properties: {},
 });
-
-// OTP数字ID → 路線IDマッピング（JR東日本GTFSデータ）
-const OTP_NUMERIC_ROUTE_MAP = {
-  "10": "yamanote",
-  "11": "chuo_rapid",
-  "12": "sobu_local",
-  "22": "keihin_tohoku",
-  "13": "tokaido",
-  "14": "yokosuka",
-  "15": "sobu_rapid",
-  "16": "joban_rapid",
-  "17": "joban_local",
-  "18": "keiyo",
-  "19": "musashino",
-  "20": "nambu",
-  "21": "yokohama",
-  "23": "saikyo",
-  "24": "shonan_shinjuku",
-  "25": "chuo",
-  "26": "ome",
-  "27": "itsukaichi",
-  "28": "utsunomiya",
-  "29": "takasaki",
-  "30": "joetsu",
-  "31": "ryomo",
-  "32": "nikko",
-  "33": "joban",
-  "34": "mito",
-  "35": "sobu",
-  "36": "narita",
-  "37": "narita_airport",
-  "38": "narita_abiko",
-  "39": "kashima",
-  "40": "togane",
-  "41": "uchibo",
-  "42": "sotobo",
-  "43": "kururi",
-  "44": "ito",
-  "45": "keiyo_koya",
-  "46": "keiyo_futamata",
-  "47": "kawagoe",
-  "48": "musashino_kunitachi",
-  "49": "musashino_omiya",
-  "50": "musashino_nishiurawa",
-  "51": "nambu_branch",
-  "52": "tsurumi",
-  "53": "tsurumi_umishibaura",
-  "54": "tsurumi_okawa",
-  "55": "sagami",
-  "56": "hachiko",
-  "57": "sotetsu_direct",
-  "58": "yamanote_freight",
-  "59": "tokaido_freight",
-  "60": "osaki_branch",
-};
 
 // 英語路線名 → 路線IDマッピング
 const ENGLISH_LINE_NAME_MAP = {
@@ -178,6 +123,14 @@ const getLineInfoFromRoute = (route) => {
       const routeIdPart = parts[1];
       if (routeIdPart.startsWith("JR-East.")) {
         const line = AVAILABLE_LINES.find((l) => l.railwayId === routeIdPart);
+        if (line) {
+          return { id: line.id, railwayId: line.railwayId, color: line.color };
+        }
+      }
+      // 数字ID形式 ("21" → "yokohama")
+      const numericLineId = OTP_NUMERIC_ROUTE_MAP[routeIdPart];
+      if (numericLineId) {
+        const line = AVAILABLE_LINES.find((l) => l.id === numericLineId);
         if (line) {
           return { id: line.id, railwayId: line.railwayId, color: line.color };
         }

@@ -454,9 +454,9 @@ async def get_yamanote_positions():
     api_key = os.getenv("ODPT_API_KEY", "").strip()
 
     try:
-        from gtfs_rt_vehicle import fetch_yamanote_positions
+        from gtfs_rt_vehicle import fetch_vehicle_positions
 
-        positions = await fetch_yamanote_positions(api_key)
+        positions = await fetch_vehicle_positions(api_key, target_route_id="JR-East.Yamanote")
 
         return {
             "timestamp": positions[0].timestamp if positions else 0,
@@ -837,8 +837,7 @@ async def get_yamanote_positions_v4():
             if now_ts is None:
                 now_ts = r.now_ts
 
-            positions.append(
-                {
+            pos_entry = {
                     "trip_id": r.trip_id,
                     "train_number": r.train_number,
                     "direction": r.direction,
@@ -864,7 +863,10 @@ async def get_yamanote_positions_v4():
                         "feed_timestamp": r.feed_timestamp,
                     },
                 }
-            )
+            # MS14: 始発駅フラグ
+            if r.is_starting_station:
+                pos_entry["is_starting_station"] = True
+            positions.append(pos_entry)
 
         # ソート: direction -> train_number
         positions.sort(key=lambda p: (p["direction"] or "", p["train_number"] or ""))
@@ -944,9 +946,30 @@ async def get_train_positions_v4(line_id: str):
                     "positions": [],
                 }
             client = app.state.http_client
-            schedules = await fetch_trip_updates(
-                client, api_key, data_cache, target_route_id=line_config.gtfs_route_id, mt3d_prefix=line_config.mt3d_id
+
+            # MS13: VehiclePosition も取得して統合
+            from gtfs_rt_vehicle import fetch_vehicle_positions
+
+            # 並行取得
+            import asyncio
+
+            trip_update_task = fetch_trip_updates(
+                client,
+                api_key,
+                data_cache,
+                target_route_id=line_config.gtfs_route_id,
+                mt3d_prefix=line_config.mt3d_id,
             )
+            vehicle_position_task = fetch_vehicle_positions(
+                api_key, target_route_id=line_config.gtfs_route_id
+            )
+
+            schedules, vehicle_positions_list = await asyncio.gather(
+                trip_update_task, vehicle_position_task
+            )
+
+            # VehiclePosition を trip_id でマップ化
+            vehicle_positions_map = {vp.trip_id: vp for vp in vehicle_positions_list}
 
         if not schedules:
             return {
@@ -961,7 +984,13 @@ async def get_train_positions_v4(line_id: str):
 
         # 3. MS2: 進捗計算 (タイムトラベル時は仮想時刻を使う)
         mock_now = time_mgr.now() if time_mgr.is_virtual() else None
-        results = compute_all_progress(schedules, now_ts=mock_now, data_cache=data_cache)
+        
+        # VehiclePosition マップを渡す（実データ時のみ有効、モック時は空）
+        v_map = vehicle_positions_map if not time_mgr.is_virtual() else {}
+        
+        results = compute_all_progress(
+            schedules, now_ts=mock_now, data_cache=data_cache, vehicle_positions=v_map
+        )
 
         # 4. レスポンス構築
         positions = []
@@ -989,8 +1018,7 @@ async def get_train_positions_v4(line_id: str):
             if now_ts is None:
                 now_ts = r.now_ts
 
-            positions.append(
-                {
+            pos_entry = {
                     "trip_id": r.trip_id,
                     "train_number": r.train_number,
                     "direction": r.direction,
@@ -1017,7 +1045,10 @@ async def get_train_positions_v4(line_id: str):
                         "feed_timestamp": r.feed_timestamp,
                     },
                 }
-            )
+            # MS14: 始発駅フラグ
+            if r.is_starting_station:
+                pos_entry["is_starting_station"] = True
+            positions.append(pos_entry)
 
         # ソート: direction -> train_number
         positions.sort(key=lambda p: (p["direction"] or "", p["train_number"] or ""))
@@ -1119,22 +1150,19 @@ def _identify_line_from_route_id(route_gtfs_id: str) -> Optional[str]:
     else:
         route_id = route_gtfs_id
 
-    # 既知の路線IDとのマッピング
-    # OTPのGTFSデータでは数字IDが使われる場合がある
-    route_to_line = {
-        # 数字ID形式 (JR東日本GTFSデータ)
-        "10": "yamanote",  # 山手線
-        "11": "chuo_rapid",  # 中央線快速
-        "12": "sobu_local",  # 中央・総武緩行線
-        "22": "keihin_tohoku",  # 京浜東北・根岸線
-        # フルID形式 (バックアップ)
-        "JR-East.Yamanote": "yamanote",
-        "JR-East.ChuoRapid": "chuo_rapid",
-        "JR-East.KeihinTohokuNegishi": "keihin_tohoku",
-        "JR-East.ChuoSobuLocal": "sobu_local",
-    }
+    # 1. OTP数字ID → 内部路線ID (config.py の全路線マッピング)
+    from config import OTP_NUMERIC_ROUTE_MAP, SUPPORTED_LINES
 
-    return route_to_line.get(route_id)
+    result = OTP_NUMERIC_ROUTE_MAP.get(route_id)
+    if result:
+        return result
+
+    # 2. フルID形式 (例: "JR-East.Yokohama") → SUPPORTED_LINES から逆引き
+    for line_id, conf in SUPPORTED_LINES.items():
+        if conf.gtfs_route_id == route_id:
+            return line_id
+
+    return None
 
 
 def _extract_trip_id_suffix(trip_gtfs_id: str) -> str:
@@ -1175,11 +1203,14 @@ async def _get_train_positions_for_lines(
             schedules = await fetch_trip_updates(
                 client, api_key, data_cache, target_route_id=line_config.gtfs_route_id, mt3d_prefix=line_config.mt3d_id
             )
+            logger.info(f"[ROUTE-SEARCH] line={line_id}: {len(schedules)} schedules found")
 
             if not schedules:
                 continue
 
             results = compute_all_progress(schedules, data_cache=data_cache)
+            valid = [r for r in results if r.status != "invalid"]
+            logger.info(f"[ROUTE-SEARCH] line={line_id}: {len(valid)} valid positions")
 
             for r in results:
                 if r.status == "invalid":

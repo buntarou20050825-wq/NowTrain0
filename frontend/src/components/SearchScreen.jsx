@@ -1,5 +1,5 @@
 // frontend/src/components/SearchScreen.jsx
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { searchStations, searchRoute } from "../api/serverData";
 import "./SearchScreen.css";
 
@@ -12,11 +12,29 @@ export default function SearchScreen({ onSearchComplete, initialParams }) {
   const [toInput, setToInput] = useState(initialParams?.toStation || "");
   const [selectedFrom, setSelectedFrom] = useState(null);
   const [selectedTo, setSelectedTo] = useState(null);
+  // ユーザーが日時を変更したかどうかのフラグ
+  // false(デフォルト): 常に現在時刻を表示 / true: ユーザー指定時刻を保持
+  const [isTimeModified, setIsTimeModified] = useState(initialParams?.isTimeModified || false);
+
   const [date, setDate] = useState(() => {
+    // 変更済みの場合は保持された値を復元
+    if (initialParams?.isTimeModified && initialParams?.date) {
+      return initialParams.date;
+    }
+    // 未変更なら現在日付 (ローカル時間)
     const now = new Date();
-    return now.toISOString().split("T")[0];
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   });
+
   const [time, setTime] = useState(() => {
+    // 変更済みの場合は保持された値を復元
+    if (initialParams?.isTimeModified && initialParams?.time) {
+      return initialParams.time;
+    }
+    // 未変更なら現在時刻
     const now = new Date();
     return now.toTimeString().slice(0, 5);
   });
@@ -37,6 +55,33 @@ export default function SearchScreen({ onSearchComplete, initialParams }) {
   const toDebounceRef = useRef(null);
   const dateInputRef = useRef(null);
   const timeInputRef = useRef(null);
+
+  // Case A: ユーザーが未変更の場合、現在時刻を維持し続ける (1分毎 or フォーカス時)
+  // useEffect を使ってコンポーネント表示中も時刻を更新
+  useEffect(() => {
+    if (isTimeModified) return;
+
+    const updateToNow = () => {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      setDate(`${year}-${month}-${day}`);
+      setTime(now.toTimeString().slice(0, 5));
+    };
+
+    // マウント時に一度更新 (initでもやってるが念のため)
+    updateToNow();
+
+    const interval = setInterval(updateToNow, 60000); // 1分ごとに更新
+    const onFocus = () => updateToNow(); // ウィンドウフォーカス時にも更新
+
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [isTimeModified]);
 
   // 駅名検索（デバウンス付き）
   const searchStationsDebounced = useCallback((query, setSuggestions, setShow) => {
@@ -98,6 +143,17 @@ export default function SearchScreen({ onSearchComplete, initialParams }) {
     setSelectedTo(tempSelected);
   };
 
+  // 日時変更ハンドラ (変更フラグを立てる)
+  const handleDateChange = (e) => {
+    setDate(e.target.value);
+    setIsTimeModified(true);
+  };
+
+  const handleTimeChange = (e) => {
+    setTime(e.target.value);
+    setIsTimeModified(true);
+  };
+
   // 経路検索実行
   const handleSearch = async () => {
     const fromStation = selectedFrom?.name_ja || fromInput;
@@ -117,6 +173,7 @@ export default function SearchScreen({ onSearchComplete, initialParams }) {
       date,
       time,
       arriveBy,
+      isTimeModified, // 状態を保存するために含める
     };
 
     const result = await searchRoute(searchParams);
@@ -146,12 +203,6 @@ export default function SearchScreen({ onSearchComplete, initialParams }) {
   // 日付フォーマット（表示用）
   const formatDateDisplay = (dateStr) => {
     const d = new Date(dateStr);
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    if (d.toDateString() === today.toDateString()) return "今日";
-    if (d.toDateString() === tomorrow.toDateString()) return "明日";
     return `${d.getMonth() + 1}/${d.getDate()}`;
   };
 
@@ -258,7 +309,7 @@ export default function SearchScreen({ onSearchComplete, initialParams }) {
               ref={dateInputRef}
               type="date"
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={handleDateChange}
               className="datetime-input-hidden"
             />
           </div>
@@ -271,7 +322,7 @@ export default function SearchScreen({ onSearchComplete, initialParams }) {
               ref={timeInputRef}
               type="time"
               value={time}
-              onChange={(e) => setTime(e.target.value)}
+              onChange={handleTimeChange}
               className="datetime-input-hidden"
             />
           </div>

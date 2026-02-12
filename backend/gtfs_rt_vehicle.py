@@ -211,15 +211,18 @@ def get_train_number(trip_id: str) -> str:
     return trip_id
 
 
-async def fetch_yamanote_positions(api_key: str) -> list[YamanoteTrainPosition]:
+async def fetch_vehicle_positions(
+    api_key: str, target_route_id: Optional[str] = None
+) -> list[YamanoteTrainPosition]:
     """
-    GTFS-RT VehiclePosition から山手線の列車位置を取得
+    GTFS-RT VehiclePosition から列車位置を取得（汎用版）
 
     Args:
         api_key: ODPT APIキー
+        target_route_id: 対象路線ID (例: "JR-East.ChuoRapid")。指定時はフィルタリングを行う。
 
     Returns:
-        山手線列車位置のリスト
+        列車位置のリスト
     """
     url = "https://api-challenge.odpt.org/api/v4/gtfs/realtime/jreast_odpt_train_vehicle"
 
@@ -238,16 +241,23 @@ async def fetch_yamanote_positions(api_key: str) -> list[YamanoteTrainPosition]:
 
         vp = entity.vehicle
         trip_id = vp.trip.trip_id
-
-        # 山手線フィルタ
-        if not is_yamanote(trip_id):
-            continue
+        
+        # 路線フィルタ
+        if target_route_id:
+            # 1. route_id があればそれで判定
+            if vp.trip.route_id == target_route_id:
+                pass # マッチ
+            else:
+                # 2. trip_id から推定
+                possible_routes = identify_routes_by_trip_id(trip_id)
+                if target_route_id not in possible_routes:
+                    continue
 
         positions.append(
             YamanoteTrainPosition(
                 trip_id=trip_id,
                 train_number=get_train_number(trip_id),
-                direction=get_direction(trip_id),
+                direction=get_direction(trip_id, target_route_id),
                 latitude=vp.position.latitude,
                 longitude=vp.position.longitude,
                 stop_sequence=vp.current_stop_sequence,

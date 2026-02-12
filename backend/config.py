@@ -129,6 +129,63 @@ SUPPORTED_LINES: Dict[str, LineConfig] = {
 }
 
 
+# OTP数字ID → 内部路線IDマッピング（JR東日本GTFSデータ）
+# フロントエンド MapView.jsx の OTP_NUMERIC_ROUTE_MAP と同期
+OTP_NUMERIC_ROUTE_MAP: Dict[str, str] = {
+    "10": "yamanote",
+    "11": "chuo_rapid",
+    "12": "sobu_local",
+    "13": "tokaido",
+    "14": "yokosuka",
+    "15": "sobu_rapid",
+    "16": "joban_rapid",
+    "17": "joban_local",
+    "18": "keiyo",
+    "19": "musashino",
+    "20": "nambu",
+    "21": "yokohama",
+    "22": "keihin_tohoku",
+    "23": "saikyo",
+    "24": "shonan_shinjuku",
+    "25": "chuo",
+    "26": "ome",
+    "27": "itsukaichi",
+    "28": "utsunomiya",
+    "29": "takasaki",
+    "30": "joetsu",
+    "31": "ryomo",
+    "32": "nikko",
+    "33": "joban",
+    "34": "mito",
+    "35": "sobu",
+    "36": "narita",
+    "37": "narita_airport",
+    "38": "narita_abiko",
+    "39": "kashima",
+    "40": "togane",
+    "41": "uchibo",
+    "42": "sotobo",
+    "43": "kururi",
+    "44": "ito",
+    "45": "keiyo_koya",
+    "46": "keiyo_futamata",
+    "47": "kawagoe",
+    "48": "musashino_kunitachi",
+    "49": "musashino_omiya",
+    "50": "musashino_nishiurawa",
+    "51": "nambu_branch",
+    "52": "tsurumi",
+    "53": "tsurumi_umishibaura",
+    "54": "tsurumi_okawa",
+    "55": "sagami",
+    "56": "hachiko",
+    "57": "sotetsu_direct",
+    "58": "yamanote_freight",
+    "59": "tokaido_freight",
+    "60": "osaki_branch",
+}
+
+
 def get_line_config(line_id: str) -> Optional[LineConfig]:
     """
     路線IDから設定を取得する。

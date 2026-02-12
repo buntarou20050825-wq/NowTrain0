@@ -15,12 +15,21 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 from geometry import build_all_railways_cache, merge_sublines_v2
 from gtfs_rt_tripupdate import RealtimeStationSchedule, TrainSchedule
+from gtfs_rt_vehicle import YamanoteTrainPosition  # Type hint
 from station_ranks import get_station_dwell_time
 
 if TYPE_CHECKING:
     from data_cache import DataCache
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# MS14: 始発駅検出バッファ (Origin Station Detection)
+# ============================================================================
+# 始発駅（arrival_time が存在しない最初の停車駅）において、
+# 出発時刻の何秒前から「停車中」として表示するか。
+# 30分 = 1800秒: JR の発車標が概ね30分前から列車を表示するのに合わせた値。
+ORIGIN_STATION_BUFFER_SEC = 1800
 
 # ============================================================================
 # MS8: 物理演算ベースの台形速度制御 (E235系)
@@ -90,6 +99,7 @@ class SegmentProgress:
     feed_timestamp: Optional[int] = None
     segment_count: int = 0  # 全区間数
     delay: int = 0  # MS6: 遅延秒数
+    is_starting_station: bool = False  # MS13: 始発駅での停車フラグ
 
 
 # ============================================================================
@@ -176,6 +186,17 @@ def _is_stopped_at_station(
     if arr is not None and effective_dep is not None:
         return arr <= now_ts <= effective_dep
 
+    # 始発駅対応（arrivalがNoneでも、departureがあるなら「出発前の停車中」とみなす）
+    if arr is None and effective_dep is not None:
+        # 停車時間が取得できれば使い、なければデフォルト（60秒）を使用
+        dwell_seconds = _get_dwell_seconds(schedule, data_cache) or 60
+        
+        # 擬似到着時刻を算出
+        synthetic_arr = effective_dep - dwell_seconds
+        
+        # 「擬似到着時刻 〜 出発時刻」の間にいれば停車中とする
+        return synthetic_arr <= now_ts <= effective_dep
+
     return False
 
 
@@ -197,6 +218,7 @@ def compute_progress_for_train(
     schedule: TrainSchedule,
     now_ts: Optional[int] = None,
     data_cache: "DataCache" | None = None,
+    vehicle_position: Optional[YamanoteTrainPosition] = None,
 ) -> SegmentProgress:
     """
     単一列車の現在位置・進捗を計算する。
@@ -204,6 +226,7 @@ def compute_progress_for_train(
     Args:
         schedule: TrainSchedule（MS1の出力）
         now_ts: 現在時刻（unix seconds）。None なら time.time() を使用。
+        vehicle_position: リアルタイム位置情報 (MS13)
 
     Returns:
         SegmentProgress（計算結果）
@@ -221,7 +244,43 @@ def compute_progress_for_train(
     train_number = schedule.train_number
     direction = schedule.direction
     seqs = schedule.ordered_sequences
+    seqs = schedule.ordered_sequences
     schedules_by_seq = schedule.schedules_by_seq
+
+    # 1.5 MS13: VehiclePosition による始発駅オーバーライド
+    # 出発前でも「始発駅に停車中」という確実な情報があれば表示対象にする
+    if vehicle_position:
+        # status=1 (STOPPED_AT) かつ stop_sequence が 0 または 1 (始発駅付近)
+        if vehicle_position.status == 1 and vehicle_position.stop_sequence <= 1:
+            # 始発駅のスケジュールを取得 (sequence=1 を想定、0の場合は1にマップ)
+            origin_seq = (
+                vehicle_position.stop_sequence if vehicle_position.stop_sequence > 0 else 1
+            )
+            # スケジュールが存在するか確認
+            origin_stu = schedules_by_seq.get(origin_seq)
+
+            if origin_stu:
+                logger.debug(
+                    f"Origin Override: {trip_id} is at {origin_stu.station_id} (seq={origin_seq})"
+                )
+                return SegmentProgress(
+                    trip_id=trip_id,
+                    train_number=train_number,
+                    direction=direction,
+                    prev_station_id=origin_stu.station_id,
+                    next_station_id=origin_stu.station_id,
+                    prev_seq=origin_seq,
+                    next_seq=origin_seq,
+                    now_ts=now_ts,
+                    t0_departure=origin_stu.departure_time,
+                    t1_arrival=origin_stu.arrival_time,
+                    progress=0.0,
+                    status="stopped",
+                    feed_timestamp=schedule.feed_timestamp,
+                    segment_count=len(seqs) - 1,
+                    delay=origin_stu.delay or 0,
+                    is_starting_station=True,
+                )
 
     # 2. 無効チェック（区間数が2未満）
     if len(seqs) < 2:
@@ -243,10 +302,47 @@ def compute_progress_for_train(
             delay=0,
         )
 
+    # 2.5 MS14: TripUpdate-only 始発駅判定
+    # VehiclePosition がない場合でも、TripUpdate の時刻情報だけで
+    # 始発駅で出発待ちの列車を検出する。
+    # 条件: 最初の stop_sequence で、発車時刻が未来かつバッファ内
+    #       (arrival_time の有無に関わらず、始発駅とみなす)
+    first_seq = seqs[0]
+    first_stu = schedules_by_seq.get(first_seq)
+    # arrival_time is None チェックを削除し、純粋に出発前かどうかで判定
+    if first_stu and first_stu.departure_time is not None:
+        dep = first_stu.departure_time
+        if (dep - ORIGIN_STATION_BUFFER_SEC) <= now_ts <= dep:
+            logger.debug(
+                "Origin detected (TripUpdate-only): %s at %s (seq=%d), "
+                "dep in %ds",
+                trip_id, first_stu.station_id, first_seq, dep - now_ts,
+            )
+            return SegmentProgress(
+                trip_id=trip_id,
+                train_number=train_number,
+                direction=direction,
+                prev_station_id=first_stu.station_id,
+                next_station_id=first_stu.station_id,
+                prev_seq=first_seq,
+                next_seq=first_seq,
+                now_ts=now_ts,
+                t0_departure=first_stu.departure_time,
+                t1_arrival=first_stu.arrival_time,
+                progress=0.0,
+                status="stopped",
+                feed_timestamp=schedule.feed_timestamp,
+                segment_count=len(seqs) - 1,
+                delay=first_stu.delay or 0,
+                is_starting_station=True,
+            )
+
     # 3. 停車判定（各駅の arrival <= now <= departure をチェック）
     for seq in seqs:
         stu = schedules_by_seq.get(seq)
         if stu and _is_stopped_at_station(stu, now_ts, data_cache):
+            # 始発駅かどうかを判定: 最初のseq かつ arrival_time がない
+            is_origin = (seq == seqs[0] and stu.arrival_time is None)
             return SegmentProgress(
                 trip_id=trip_id,
                 train_number=train_number,
@@ -263,6 +359,7 @@ def compute_progress_for_train(
                 feed_timestamp=schedule.feed_timestamp,
                 segment_count=len(seqs) - 1,
                 delay=stu.delay,
+                is_starting_station=is_origin,
             )
 
     # 4. 区間判定（走行中）
@@ -350,6 +447,7 @@ def compute_all_progress(
     schedules: Dict[str, TrainSchedule],
     now_ts: Optional[int] = None,
     data_cache: "DataCache" | None = None,
+    vehicle_positions: Dict[str, YamanoteTrainPosition] = None,
 ) -> List[SegmentProgress]:
     """
     複数列車の現在位置・進捗をまとめて計算する。
@@ -357,6 +455,7 @@ def compute_all_progress(
     Args:
         schedules: {trip_id: TrainSchedule} の辞書（MS1の出力）
         now_ts: 現在時刻（unix seconds）。None なら time.time() を使用。
+        vehicle_positions: {trip_id: VehiclePosition} の辞書 (MS13)
 
     Returns:
         SegmentProgress のリスト
@@ -369,7 +468,8 @@ def compute_all_progress(
 
     for trip_id, schedule in schedules.items():
         try:
-            progress = compute_progress_for_train(schedule, now_ts, data_cache)
+            vp = vehicle_positions.get(trip_id) if vehicle_positions else None
+            progress = compute_progress_for_train(schedule, now_ts, data_cache, vp)
             results.append(progress)
         except Exception as e:
             logger.error(f"Failed to compute progress for {trip_id}: {e}")
