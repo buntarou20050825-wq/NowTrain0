@@ -211,9 +211,7 @@ def get_train_number(trip_id: str) -> str:
     return trip_id
 
 
-async def fetch_vehicle_positions(
-    api_key: str, target_route_id: Optional[str] = None
-) -> list[YamanoteTrainPosition]:
+async def fetch_vehicle_positions(api_key: str, target_route_id: Optional[str] = None) -> list[YamanoteTrainPosition]:
     """
     GTFS-RT VehiclePosition から列車位置を取得（汎用版）
 
@@ -241,12 +239,12 @@ async def fetch_vehicle_positions(
 
         vp = entity.vehicle
         trip_id = vp.trip.trip_id
-        
+
         # 路線フィルタ
         if target_route_id:
             # 1. route_id があればそれで判定
             if vp.trip.route_id == target_route_id:
-                pass # マッチ
+                pass  # マッチ
             else:
                 # 2. trip_id から推定
                 possible_routes = identify_routes_by_trip_id(trip_id)

@@ -838,31 +838,31 @@ async def get_yamanote_positions_v4():
                 now_ts = r.now_ts
 
             pos_entry = {
-                    "trip_id": r.trip_id,
-                    "train_number": r.train_number,
-                    "direction": r.direction,
-                    "status": r.status,
-                    "progress": round(r.progress, 4) if r.progress is not None else None,
-                    "delay": r.delay,  # MS6: 遅延秒数
-                    "location": {
-                        "latitude": round(lat, 6) if lat is not None else None,
-                        "longitude": round(lon, 6) if lon is not None else None,
-                    },
-                    "segment": {
-                        "prev_seq": r.prev_seq,
-                        "next_seq": r.next_seq,
-                        "prev_station_id": r.prev_station_id,
-                        "next_station_id": r.next_station_id,
-                    },
-                    "times": {
-                        "now_ts": r.now_ts,
-                        "t0_departure": r.t0_departure,
-                        "t1_arrival": r.t1_arrival,
-                    },
-                    "debug": {
-                        "feed_timestamp": r.feed_timestamp,
-                    },
-                }
+                "trip_id": r.trip_id,
+                "train_number": r.train_number,
+                "direction": r.direction,
+                "status": r.status,
+                "progress": round(r.progress, 4) if r.progress is not None else None,
+                "delay": r.delay,  # MS6: 遅延秒数
+                "location": {
+                    "latitude": round(lat, 6) if lat is not None else None,
+                    "longitude": round(lon, 6) if lon is not None else None,
+                },
+                "segment": {
+                    "prev_seq": r.prev_seq,
+                    "next_seq": r.next_seq,
+                    "prev_station_id": r.prev_station_id,
+                    "next_station_id": r.next_station_id,
+                },
+                "times": {
+                    "now_ts": r.now_ts,
+                    "t0_departure": r.t0_departure,
+                    "t1_arrival": r.t1_arrival,
+                },
+                "debug": {
+                    "feed_timestamp": r.feed_timestamp,
+                },
+            }
             # MS14: 始発駅フラグ
             if r.is_starting_station:
                 pos_entry["is_starting_station"] = True
@@ -948,10 +948,10 @@ async def get_train_positions_v4(line_id: str):
             client = app.state.http_client
 
             # MS13: VehiclePosition も取得して統合
-            from gtfs_rt_vehicle import fetch_vehicle_positions
-
             # 並行取得
             import asyncio
+
+            from gtfs_rt_vehicle import fetch_vehicle_positions
 
             trip_update_task = fetch_trip_updates(
                 client,
@@ -960,13 +960,9 @@ async def get_train_positions_v4(line_id: str):
                 target_route_id=line_config.gtfs_route_id,
                 mt3d_prefix=line_config.mt3d_id,
             )
-            vehicle_position_task = fetch_vehicle_positions(
-                api_key, target_route_id=line_config.gtfs_route_id
-            )
+            vehicle_position_task = fetch_vehicle_positions(api_key, target_route_id=line_config.gtfs_route_id)
 
-            schedules, vehicle_positions_list = await asyncio.gather(
-                trip_update_task, vehicle_position_task
-            )
+            schedules, vehicle_positions_list = await asyncio.gather(trip_update_task, vehicle_position_task)
 
             # VehiclePosition を trip_id でマップ化
             vehicle_positions_map = {vp.trip_id: vp for vp in vehicle_positions_list}
@@ -984,13 +980,11 @@ async def get_train_positions_v4(line_id: str):
 
         # 3. MS2: 進捗計算 (タイムトラベル時は仮想時刻を使う)
         mock_now = time_mgr.now() if time_mgr.is_virtual() else None
-        
+
         # VehiclePosition マップを渡す（実データ時のみ有効、モック時は空）
         v_map = vehicle_positions_map if not time_mgr.is_virtual() else {}
-        
-        results = compute_all_progress(
-            schedules, now_ts=mock_now, data_cache=data_cache, vehicle_positions=v_map
-        )
+
+        results = compute_all_progress(schedules, now_ts=mock_now, data_cache=data_cache, vehicle_positions=v_map)
 
         # 4. レスポンス構築
         positions = []
@@ -1019,32 +1013,32 @@ async def get_train_positions_v4(line_id: str):
                 now_ts = r.now_ts
 
             pos_entry = {
-                    "trip_id": r.trip_id,
-                    "train_number": r.train_number,
-                    "direction": r.direction,
-                    "status": r.status,
-                    "progress": round(r.progress, 4) if r.progress is not None else None,
-                    "delay": r.delay,
-                    "location": {
-                        "latitude": round(lat, 6) if lat is not None else None,
-                        "longitude": round(lon, 6) if lon is not None else None,
-                        "bearing": round(bearing, 2) if bearing is not None else 0.0,
-                    },
-                    "segment": {
-                        "prev_seq": r.prev_seq,
-                        "next_seq": r.next_seq,
-                        "prev_station_id": r.prev_station_id,
-                        "next_station_id": r.next_station_id,
-                    },
-                    "times": {
-                        "now_ts": r.now_ts,
-                        "t0_departure": r.t0_departure,
-                        "t1_arrival": r.t1_arrival,
-                    },
-                    "debug": {
-                        "feed_timestamp": r.feed_timestamp,
-                    },
-                }
+                "trip_id": r.trip_id,
+                "train_number": r.train_number,
+                "direction": r.direction,
+                "status": r.status,
+                "progress": round(r.progress, 4) if r.progress is not None else None,
+                "delay": r.delay,
+                "location": {
+                    "latitude": round(lat, 6) if lat is not None else None,
+                    "longitude": round(lon, 6) if lon is not None else None,
+                    "bearing": round(bearing, 2) if bearing is not None else 0.0,
+                },
+                "segment": {
+                    "prev_seq": r.prev_seq,
+                    "next_seq": r.next_seq,
+                    "prev_station_id": r.prev_station_id,
+                    "next_station_id": r.next_station_id,
+                },
+                "times": {
+                    "now_ts": r.now_ts,
+                    "t0_departure": r.t0_departure,
+                    "t1_arrival": r.t1_arrival,
+                },
+                "debug": {
+                    "feed_timestamp": r.feed_timestamp,
+                },
+            }
             # MS14: 始発駅フラグ
             if r.is_starting_station:
                 pos_entry["is_starting_station"] = True

@@ -1,15 +1,16 @@
-
-import unittest
 import time
-from backend.train_position_v4 import compute_progress_for_train, SegmentProgress
-from backend.gtfs_rt_tripupdate import TrainSchedule, RealtimeStationSchedule
-from backend.gtfs_rt_vehicle import YamanoteTrainPosition
+import unittest
+
+from gtfs_rt_tripupdate import RealtimeStationSchedule, TrainSchedule
+from gtfs_rt_vehicle import YamanoteTrainPosition
+from train_position_v4 import SegmentProgress, compute_progress_for_train
+
 
 class TestOriginLogic(unittest.TestCase):
     def test_future_departure_with_vehicle_position(self):
         # 1. Setup Mock Schedule (Departure in 30 mins)
         now_ts = int(time.time())
-        future_dep = now_ts + 1800 # 30 mins later
+        future_dep = now_ts + 1800  # 30 mins later
 
         schedule = TrainSchedule(
             trip_id="test_trip",
@@ -25,7 +26,7 @@ class TestOriginLogic(unittest.TestCase):
                     arrival_time=None,
                     departure_time=future_dep,
                     resolved=True,
-                    raw_stop_id="OriginSt"
+                    raw_stop_id="OriginSt",
                 ),
                 2: RealtimeStationSchedule(
                     stop_sequence=2,
@@ -33,9 +34,9 @@ class TestOriginLogic(unittest.TestCase):
                     arrival_time=future_dep + 300,
                     departure_time=future_dep + 360,
                     resolved=True,
-                    raw_stop_id="NextSt"
-                )
-            }
+                    raw_stop_id="NextSt",
+                ),
+            },
         )
 
         # 2. Case A: No VehiclePosition -> TripUpdate-only origin detection
@@ -53,8 +54,8 @@ class TestOriginLogic(unittest.TestCase):
             latitude=35.0,
             longitude=139.0,
             stop_sequence=1,
-            status=1, # STOPPED_AT
-            timestamp=now_ts
+            status=1,  # STOPPED_AT
+            timestamp=now_ts,
         )
 
         result_with_vp = compute_progress_for_train(schedule, now_ts=now_ts, vehicle_position=vp)
@@ -83,7 +84,7 @@ class TestOriginLogic(unittest.TestCase):
                     arrival_time=None,
                     departure_time=future_dep,
                     resolved=True,
-                    raw_stop_id="OriginSt"
+                    raw_stop_id="OriginSt",
                 ),
                 2: RealtimeStationSchedule(
                     stop_sequence=2,
@@ -91,9 +92,9 @@ class TestOriginLogic(unittest.TestCase):
                     arrival_time=future_dep + 300,
                     departure_time=future_dep + 360,
                     resolved=True,
-                    raw_stop_id="NextSt"
-                )
-            }
+                    raw_stop_id="NextSt",
+                ),
+            },
         )
 
         result = compute_progress_for_train(schedule, now_ts=now_ts)
@@ -101,5 +102,6 @@ class TestOriginLogic(unittest.TestCase):
         self.assertIn(result.status, ("unknown",))
         print("Success: Train 45 mins before departure is unknown (outside buffer).")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

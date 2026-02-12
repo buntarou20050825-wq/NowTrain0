@@ -190,10 +190,10 @@ def _is_stopped_at_station(
     if arr is None and effective_dep is not None:
         # 停車時間が取得できれば使い、なければデフォルト（60秒）を使用
         dwell_seconds = _get_dwell_seconds(schedule, data_cache) or 60
-        
+
         # 擬似到着時刻を算出
         synthetic_arr = effective_dep - dwell_seconds
-        
+
         # 「擬似到着時刻 〜 出発時刻」の間にいれば停車中とする
         return synthetic_arr <= now_ts <= effective_dep
 
@@ -253,16 +253,12 @@ def compute_progress_for_train(
         # status=1 (STOPPED_AT) かつ stop_sequence が 0 または 1 (始発駅付近)
         if vehicle_position.status == 1 and vehicle_position.stop_sequence <= 1:
             # 始発駅のスケジュールを取得 (sequence=1 を想定、0の場合は1にマップ)
-            origin_seq = (
-                vehicle_position.stop_sequence if vehicle_position.stop_sequence > 0 else 1
-            )
+            origin_seq = vehicle_position.stop_sequence if vehicle_position.stop_sequence > 0 else 1
             # スケジュールが存在するか確認
             origin_stu = schedules_by_seq.get(origin_seq)
 
             if origin_stu:
-                logger.debug(
-                    f"Origin Override: {trip_id} is at {origin_stu.station_id} (seq={origin_seq})"
-                )
+                logger.debug(f"Origin Override: {trip_id} is at {origin_stu.station_id} (seq={origin_seq})")
                 return SegmentProgress(
                     trip_id=trip_id,
                     train_number=train_number,
@@ -314,9 +310,11 @@ def compute_progress_for_train(
         dep = first_stu.departure_time
         if (dep - ORIGIN_STATION_BUFFER_SEC) <= now_ts <= dep:
             logger.debug(
-                "Origin detected (TripUpdate-only): %s at %s (seq=%d), "
-                "dep in %ds",
-                trip_id, first_stu.station_id, first_seq, dep - now_ts,
+                "Origin detected (TripUpdate-only): %s at %s (seq=%d), dep in %ds",
+                trip_id,
+                first_stu.station_id,
+                first_seq,
+                dep - now_ts,
             )
             return SegmentProgress(
                 trip_id=trip_id,
@@ -342,7 +340,7 @@ def compute_progress_for_train(
         stu = schedules_by_seq.get(seq)
         if stu and _is_stopped_at_station(stu, now_ts, data_cache):
             # 始発駅かどうかを判定: 最初のseq かつ arrival_time がない
-            is_origin = (seq == seqs[0] and stu.arrival_time is None)
+            is_origin = seq == seqs[0] and stu.arrival_time is None
             return SegmentProgress(
                 trip_id=trip_id,
                 train_number=train_number,

@@ -4,6 +4,7 @@ from main import app  # main.pyでFastAPI appが定義されてる前提
 
 client = TestClient(app)
 
+
 def test_time_status_endpoint():
     r = client.get("/api/debug/time-status")
     # エンドポイントが存在しない場合 404 になる可能性があるため、
